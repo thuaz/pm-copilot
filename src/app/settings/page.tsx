@@ -31,12 +31,11 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<"ok" | "fail" | null>(null);
-  const hasDefault = !!process.env.NEXT_PUBLIC_DEFAULT_API_KEY;
   const [usingDefault, setUsingDefault] = useState(false);
 
   useEffect(() => {
-    setUsingDefault(hasDefault && !localStorage.getItem("ai-config"));
     const raw = localStorage.getItem("ai-config");
+    setUsingDefault(!raw);
     if (raw) {
       try {
         const config = JSON.parse(raw);

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BookOpen, FileText, Monitor, Mic, StickyNote, ArrowRightLeft, ArrowRight, Lightbulb } from "lucide-react";
+import { getAIConfig, hasDefaultAI } from "@/lib/ai";
 
 const quickActions = [
   {
@@ -62,6 +63,8 @@ const workflow = [
 ];
 
 export default function Dashboard() {
+  const hasAI = hasDefaultAI() || !!getAIConfig();
+
   return (
     <div>
       <div className="mb-8">
@@ -129,20 +132,22 @@ export default function Dashboard() {
       </div>
 
       {/* First Time Setup */}
-      <div className="rounded-xl bg-blue-50 border border-blue-200 p-5">
-        <h2 className="font-medium text-sm text-blue-800 mb-2">
-          首次使用？
-        </h2>
-        <p className="text-sm text-blue-700">
-          请先到「设置」页面配置你的 AI API Key（OpenAI 或 Claude 都行），然后就可以使用所有功能了。
-        </p>
-        <Link
-          href="/settings"
-          className="inline-block mt-3 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700"
-        >
-          去设置
-        </Link>
-      </div>
+      {!hasAI && (
+        <div className="rounded-xl bg-blue-50 border border-blue-200 p-5">
+          <h2 className="font-medium text-sm text-blue-800 mb-2">
+            首次使用？
+          </h2>
+          <p className="text-sm text-blue-700">
+            请先到「设置」页面配置你的 AI API Key（OpenAI 或 Claude 都行），然后就可以使用所有功能了。
+          </p>
+          <Link
+            href="/settings"
+            className="inline-block mt-3 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700"
+          >
+            去设置
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

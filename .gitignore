@@ -6,3 +6,6 @@ node_modules/
 archive/
 my-kb/
 *.log
+.env
+.env.local
+.env*.local
