@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { callAIStream } from "@/lib/ai";
 import { PROTOTYPE_SYSTEM_PROMPT } from "@/lib/prompts/terms";
-import { Loader2, Download, Eye, Code, Sparkles, Trash2, FileText, Plus } from "lucide-react";
+import { Loader2, Download, Eye, Code, Sparkles, Trash2, FileText, Monitor, Smartphone } from "lucide-react";
 
 interface SavedPrototype {
   id: string;
@@ -40,6 +40,7 @@ export default function PrototypePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [view, setView] = useState<"preview" | "code">("preview");
+  const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [savedList, setSavedList] = useState<SavedPrototype[]>([]);
   const [showList, setShowList] = useState(false);
 
@@ -253,6 +254,24 @@ export default function PrototypePage() {
                     <Code className="w-3.5 h-3.5" />
                     代码
                   </button>
+                  {view === "preview" && (
+                    <div className="flex gap-0.5 ml-2 border-l border-[var(--color-border)] pl-2">
+                      <button
+                        onClick={() => setDevice("desktop")}
+                        className={`p-1 rounded ${device === "desktop" ? "bg-[var(--color-accent)] text-[var(--color-primary)]" : "text-gray-400 hover:text-gray-600"}`}
+                        title="桌面端"
+                      >
+                        <Monitor className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setDevice("mobile")}
+                        className={`p-1 rounded ${device === "mobile" ? "bg-[var(--color-accent)] text-[var(--color-primary)]" : "text-gray-400 hover:text-gray-600"}`}
+                        title="移动端"
+                      >
+                        <Smartphone className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={handleDownload}
@@ -262,16 +281,16 @@ export default function PrototypePage() {
                   下载 HTML
                 </button>
               </div>
-              <div className="h-[500px]">
+              <div className={`h-[600px] flex justify-center ${device === "mobile" ? "bg-gray-100 p-4" : ""}`}>
                 {view === "preview" ? (
                   <iframe
                     srcDoc={htmlCode}
                     sandbox="allow-scripts"
-                    className="w-full h-full border-0"
+                    className={`border-0 transition-all ${device === "mobile" ? "w-[375px] rounded-2xl border-4 border-gray-800 shadow-xl" : "w-full"}`}
                     title="原型预览"
                   />
                 ) : (
-                  <pre className="h-full overflow-auto p-4 text-xs bg-gray-50">
+                  <pre className="w-full h-full overflow-auto p-4 text-xs bg-gray-50">
                     <code>{htmlCode}</code>
                   </pre>
                 )}
