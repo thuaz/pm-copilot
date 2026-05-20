@@ -354,28 +354,42 @@ export default function PRDPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {filtered.map((prd) => (
+            {filtered.map((prd) => {
+              const preview = prd.content
+                .replace(/^#+\s.*/gm, "")
+                .replace(/[*`[\]#]/g, "")
+                .split("\n")
+                .filter((l: string) => l.trim())
+                .slice(0, 2)
+                .join(" ")
+                .substring(0, 120);
+              return (
               <div
                 key={prd.id}
-                className="group flex items-center gap-3 p-4 rounded-xl border border-[var(--color-border)] hover:border-[var(--color-primary)] cursor-pointer transition-colors"
+                className="group flex items-start gap-3 p-4 rounded-xl border border-[var(--color-border)] hover:border-[var(--color-primary)] cursor-pointer transition-colors"
                 onClick={() => { setSelectedPRD(prd); setView("detail"); }}
               >
-                <FileText className="w-5 h-5 text-[var(--color-primary)] shrink-0" />
+                <FileText className="w-5 h-5 text-[var(--color-primary)] shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{prd.title}</div>
                   <div className="text-xs text-[var(--color-muted-foreground)]">
-                    v{prd.version} · {prd.source === "recording" ? "录音生成" : prd.source === "iteration" ? "迭代更新" : prd.source}
+                    v{prd.version} · {prd.source === "recording" ? "录音生成" : prd.source === "iteration" ? "迭代更新" : prd.source === "chat" ? "对话生成" : prd.source}
                     · {new Date(prd.updatedAt).toLocaleDateString()}
                   </div>
+                  {preview && (
+                    <div className="text-xs text-[var(--color-muted-foreground)] mt-1 line-clamp-2 opacity-70">
+                      {preview}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDelete(prd.id); }}
-                  className="p-1.5 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"
+                  className="p-1.5 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 mt-0.5"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
-            ))}
+            );})}
           </div>
         )}
       </div>
