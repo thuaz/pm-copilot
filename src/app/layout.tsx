@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Sidebar } from "@/components/layout/sidebar";
+import { ProjectProvider } from "@/lib/project-context";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,11 +22,13 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body>
-        <Sidebar />
-        {/* Desktop: sidebar offset. Mobile: top bar offset */}
-        <main className="lg:ml-56 mt-14 lg:mt-0 min-h-screen">
-          <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8">{children}</div>
-        </main>
+        <ProjectProvider>
+          <Sidebar />
+          {/* Desktop: sidebar offset. Mobile: top bar offset */}
+          <main className="lg:ml-56 mt-14 lg:mt-0 min-h-screen">
+            <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8">{children}</div>
+          </main>
+        </ProjectProvider>
       </body>
     </html>
   );

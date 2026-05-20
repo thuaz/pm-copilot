@@ -1,3 +1,10 @@
+export interface PRDHistoryEntry {
+  version: number;
+  content: string;
+  updatedAt: string;
+  summary?: string;
+}
+
 export interface PRDDocument {
   id: string;
   title: string;
@@ -5,14 +12,18 @@ export interface PRDDocument {
   version: number;
   source: "recording" | "chat" | "wizard" | "iteration";
   sourceNote?: string;
+  projectId?: string;
   createdAt: string;
   updatedAt: string;
+  history?: PRDHistoryEntry[];
 }
 
-export function getAllPRDs(): PRDDocument[] {
+export function getAllPRDs(projectId?: string | null): PRDDocument[] {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem("prd-docs") || "[]");
+    const all = JSON.parse(localStorage.getItem("prd-docs") || "[]") as PRDDocument[];
+    if (projectId === null || projectId === undefined) return all;
+    return all.filter((p) => p.projectId === projectId);
   } catch {
     return [];
   }
@@ -37,7 +48,8 @@ export function createPRD(
   title: string,
   content: string,
   source: PRDDocument["source"],
-  sourceNote?: string
+  sourceNote?: string,
+  projectId?: string
 ): PRDDocument {
   const prd: PRDDocument = {
     id: `prd-${Date.now()}`,
@@ -46,12 +58,15 @@ export function createPRD(
     version: 1,
     source,
     sourceNote,
+    projectId: projectId || undefined,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
   savePRD(prd);
   return prd;
 }
+
+const MAX_HISTORY_ENTRIES = 10;
 
 export function iteratePRD(
   id: string,
@@ -60,10 +75,63 @@ export function iteratePRD(
 ): PRDDocument | null {
   const prd = getPRD(id);
   if (!prd) return null;
+
+  // Push the current content into history before overwriting
+  const history: PRDHistoryEntry[] = prd.history ? [...prd.history] : [];
+  history.push({
+    version: prd.version,
+    content: prd.content,
+    updatedAt: prd.updatedAt,
+    summary: prd.sourceNote,
+  });
+  // Keep only the most recent entries
+  if (history.length > MAX_HISTORY_ENTRIES) {
+    history.splice(0, history.length - MAX_HISTORY_ENTRIES);
+  }
+
+  prd.history = history;
   prd.content = newContent;
   prd.version += 1;
   prd.source = "iteration";
   prd.sourceNote = sourceNote;
+  prd.updatedAt = new Date().toISOString();
+  savePRD(prd);
+  return prd;
+}
+
+export function getPRDHistory(id: string): PRDHistoryEntry[] {
+  const prd = getPRD(id);
+  if (!prd || !prd.history) return [];
+  return [...prd.history].reverse(); // newest first
+}
+
+export function restorePRDVersion(
+  id: string,
+  version: number
+): PRDDocument | null {
+  const prd = getPRD(id);
+  if (!prd || !prd.history) return null;
+
+  const entry = prd.history.find((h) => h.version === version);
+  if (!entry) return null;
+
+  // Push the current content into history before restoring
+  const history: PRDHistoryEntry[] = [...prd.history];
+  history.push({
+    version: prd.version,
+    content: prd.content,
+    updatedAt: prd.updatedAt,
+    summary: prd.sourceNote,
+  });
+  if (history.length > MAX_HISTORY_ENTRIES) {
+    history.splice(0, history.length - MAX_HISTORY_ENTRIES);
+  }
+
+  prd.history = history;
+  prd.content = entry.content;
+  prd.version += 1;
+  prd.source = "iteration";
+  prd.sourceNote = `恢复到 v${version}`;
   prd.updatedAt = new Date().toISOString();
   savePRD(prd);
   return prd;

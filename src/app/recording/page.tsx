@@ -137,7 +137,6 @@ export default function RecordingPage() {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
-  const [timer, setTimer] = useState<ReturnType<typeof setInterval> | null>(null);
 
   const [transcript, setTranscript] = useState("");
   const [terms, setTerms] = useState("");
@@ -153,6 +152,9 @@ export default function RecordingPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef<boolean>(true);
+  const stepDoneGuardRef = useRef<boolean>(false);
 
   // Real-time transcription state
   const [realtimeSegments, setRealtimeSegments] = useState<TranscriptSegment[]>([]);
@@ -165,6 +167,7 @@ export default function RecordingPage() {
   const lastTipTimeRef = useRef<number>(0);
   const segmentBufferRef = useRef<string>("");
   const tipAbortRef = useRef<AbortController | null>(null);
+  const isRequestingTipRef = useRef<boolean>(false);
   const realtimePanelRef = useRef<HTMLDivElement>(null);
 
   // Check speech recognition support
@@ -181,12 +184,17 @@ export default function RecordingPage() {
 
   // Cleanup speech recognition on unmount
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (speechRef.current) {
         speechRef.current.abort();
       }
       if (tipAbortRef.current) {
         tipAbortRef.current.abort();
+      }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
       }
     };
   }, []);
@@ -225,11 +233,11 @@ export default function RecordingPage() {
         }
       }
 
-      // Trigger AI analysis every ~15 seconds
+      // Trigger AI analysis every ~15 seconds, but only if not already requesting
       const now = Date.now();
-      if (now - lastTipTimeRef.current > 15000 && segmentBufferRef.current.trim().length > 20) {
-        triggerAIAnalysis(segmentBufferRef.current.trim());
+      if (now - lastTipTimeRef.current > 15000 && segmentBufferRef.current.trim().length > 20 && !isRequestingTipRef.current) {
         lastTipTimeRef.current = now;
+        triggerAIAnalysis(segmentBufferRef.current.trim());
         segmentBufferRef.current = "";
       }
     };
@@ -270,6 +278,20 @@ export default function RecordingPage() {
 
   const triggerAIAnalysis = async (text: string) => {
     if (!text.trim()) return;
+    if (!mountedRef.current) return;
+
+    // Cancel any in-flight request
+    if (tipAbortRef.current) {
+      tipAbortRef.current.abort();
+    }
+
+    // Guard against concurrent requests
+    if (isRequestingTipRef.current) return;
+    isRequestingTipRef.current = true;
+
+    const abortController = new AbortController();
+    tipAbortRef.current = abortController;
+
     try {
       const stream = callAIStream(
         `以下是会议中最近的对话片段：\n\n${text}`,
@@ -278,12 +300,17 @@ export default function RecordingPage() {
       const reader = stream.getReader();
       let acc = "";
       while (true) {
+        // Check abort before each read
+        if (abortController.signal.aborted) break;
         const { done, value } = await reader.read();
         if (done) break;
         acc += value;
-        setCurrentTip(acc);
+        // Only update state if still mounted and not aborted
+        if (mountedRef.current && !abortController.signal.aborted) {
+          setCurrentTip(acc);
+        }
       }
-      if (acc) {
+      if (acc && mountedRef.current && !abortController.signal.aborted) {
         setAiTips((prev) => [
           ...prev,
           {
@@ -296,17 +323,22 @@ export default function RecordingPage() {
       }
     } catch {
       // Silently fail - real-time tips are best-effort
+    } finally {
+      isRequestingTipRef.current = false;
+      if (tipAbortRef.current === abortController) {
+        tipAbortRef.current = null;
+      }
     }
   };
 
   // ── Original recording logic (preserved) ──
 
   useEffect(() => {
+    const url = audioUrl;
     return () => {
-      if (timer) clearInterval(timer);
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      if (url) URL.revokeObjectURL(url);
     };
-  }, []);
+  }, [audioUrl]);
 
   const startRecording = async () => {
     try {
@@ -334,10 +366,11 @@ export default function RecordingPage() {
       setShowRealtimePanel(true);
       lastTipTimeRef.current = Date.now();
       segmentBufferRef.current = "";
+      isRequestingTipRef.current = false;
       startSpeechRecognition();
 
       const t = setInterval(() => setDuration((d) => d + 1), 1000);
-      setTimer(t);
+      timerRef.current = t;
     } catch {
       setError("无法访问麦克风，请检查浏览器权限");
     }
@@ -347,7 +380,10 @@ export default function RecordingPage() {
     if (mediaRecorderRef.current && recording) {
       mediaRecorderRef.current.stop();
       setRecording(false);
-      if (timer) clearInterval(timer);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
       stopSpeechRecognition();
     }
   };
@@ -404,6 +440,7 @@ export default function RecordingPage() {
 
   const handleGeneratePRD = async () => {
     if (!summary) return;
+    stepDoneGuardRef.current = false;
     setStep("generating");
     setGeneratedPRD("");
     setError("");
@@ -413,12 +450,19 @@ export default function RecordingPage() {
         PRD_SYSTEM_PROMPT
       );
       await readStream(stream, (acc) => {
-        setGeneratedPRD(acc);
+        if (mountedRef.current) {
+          setGeneratedPRD(acc);
+        }
       });
-      setStep("done");
+      if (mountedRef.current && !stepDoneGuardRef.current) {
+        stepDoneGuardRef.current = true;
+        setStep("done");
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "生成失败");
-      setStep("review");
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : "生成失败");
+        setStep("review");
+      }
     }
   };
 
@@ -426,6 +470,7 @@ export default function RecordingPage() {
     if (!summary || !selectedPRD) return;
     const existing = getAllPRDs().find((p) => p.id === selectedPRD);
     if (!existing) return;
+    stepDoneGuardRef.current = false;
     setStep("generating");
     setGeneratedPRD("");
     setError("");
@@ -437,14 +482,21 @@ export default function RecordingPage() {
       let finalContent = "";
       await readStream(stream, (acc) => {
         finalContent = acc;
-        setGeneratedPRD(acc);
+        if (mountedRef.current) {
+          setGeneratedPRD(acc);
+        }
       });
-      setStep("done");
+      if (mountedRef.current && !stepDoneGuardRef.current) {
+        stepDoneGuardRef.current = true;
+        setStep("done");
+      }
       const iterated = iteratePRD(selectedPRD, finalContent, `会议录音迭代 v${existing.version} → v${existing.version + 1}`);
-      if (iterated) setGeneratedPRD(iterated.content);
+      if (iterated && mountedRef.current) setGeneratedPRD(iterated.content);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "迭代失败");
-      setStep("review");
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : "迭代失败");
+        setStep("review");
+      }
     }
   };
 

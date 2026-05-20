@@ -5,10 +5,11 @@ import Link from "next/link";
 import {
   BookOpen, FileText, Monitor, Mic, StickyNote, ArrowRightLeft, ArrowRight,
   Lightbulb, Clock, CheckSquare, Plus, Trash2, ChevronRight, ListTodo,
-  FilePlus, Mic as MicIcon, Sparkles,
+  FilePlus, Mic as MicIcon, Sparkles, FolderOpen,
 } from "lucide-react";
 import { getAIConfig, hasDefaultAI } from "@/lib/ai";
 import { getAllPRDs, type PRDDocument } from "@/lib/prd-store";
+import { useProject } from "@/lib/project-context";
 
 // --- Todo Store ---
 interface TodoItem {
@@ -16,12 +17,15 @@ interface TodoItem {
   text: string;
   done: boolean;
   createdAt: string;
+  projectId?: string;
 }
 
-function getTodos(): TodoItem[] {
+function getTodos(projectId?: string | null): TodoItem[] {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem("pm-todos") || "[]");
+    const all = JSON.parse(localStorage.getItem("pm-todos") || "[]") as TodoItem[];
+    if (projectId === null || projectId === undefined) return all;
+    return all.filter((t) => t.projectId === projectId);
   } catch { return []; }
 }
 
@@ -96,17 +100,18 @@ function getTimeTip(): string {
 
 export default function Dashboard() {
   const hasAI = hasDefaultAI() || !!getAIConfig();
+  const { currentProject, currentProjectId } = useProject();
   const [prds, setPrds] = useState<PRDDocument[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [todoInput, setTodoInput] = useState("");
   const [showWorkflow, setShowWorkflow] = useState(false);
 
   useEffect(() => {
-    setPrds(getAllPRDs());
-    setTodos(getTodos());
+    setPrds(getAllPRDs(currentProjectId));
+    setTodos(getTodos(currentProjectId));
     const dismissed = localStorage.getItem("workflow-dismissed");
     setShowWorkflow(!dismissed);
-  }, []);
+  }, [currentProjectId]);
 
   const recentPRDs = prds.slice(0, 5);
   const pendingTodos = todos.filter((t) => !t.done);
@@ -125,23 +130,29 @@ export default function Dashboard() {
       text: todoInput.trim(),
       done: false,
       createdAt: new Date().toISOString(),
+      projectId: currentProjectId || undefined,
     };
-    const updated = [newTodo, ...todos];
-    setTodos(updated);
+    // Save to all todos (not just filtered)
+    const allTodos = JSON.parse(localStorage.getItem("pm-todos") || "[]") as TodoItem[];
+    const updated = [newTodo, ...allTodos];
     saveTodos(updated);
+    // Refresh filtered view
+    setTodos(getTodos(currentProjectId));
     setTodoInput("");
   };
 
   const toggleTodo = (id: string) => {
-    const updated = todos.map((t) => t.id === id ? { ...t, done: !t.done } : t);
-    setTodos(updated);
+    const allTodos = JSON.parse(localStorage.getItem("pm-todos") || "[]") as TodoItem[];
+    const updated = allTodos.map((t) => t.id === id ? { ...t, done: !t.done } : t);
     saveTodos(updated);
+    setTodos(getTodos(currentProjectId));
   };
 
   const deleteTodo = (id: string) => {
-    const updated = todos.filter((t) => t.id !== id);
-    setTodos(updated);
+    const allTodos = JSON.parse(localStorage.getItem("pm-todos") || "[]") as TodoItem[];
+    const updated = allTodos.filter((t) => t.id !== id);
     saveTodos(updated);
+    setTodos(getTodos(currentProjectId));
   };
 
   const dismissWorkflow = () => {
@@ -162,7 +173,18 @@ export default function Dashboard() {
     <div>
       {/* Greeting */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">{getTimeGreeting()} 👋</h1>
+        <h1 className="text-2xl font-bold">
+          {getTimeGreeting()} 👋
+          {currentProject && (
+            <span className="inline-flex items-center gap-1.5 ml-2 text-base font-normal text-[var(--color-muted-foreground)]">
+              <span
+                className="w-2.5 h-2.5 rounded-full inline-block"
+                style={{ background: currentProject.color }}
+              />
+              {currentProject.name}
+            </span>
+          )}
+        </h1>
         <p className="text-[var(--color-muted-foreground)] mt-1">{getTimeTip()}</p>
       </div>
 
@@ -258,6 +280,13 @@ export default function Dashboard() {
             <h2 className="text-sm font-medium flex items-center gap-1.5">
               <CheckSquare className="w-4 h-4 text-[var(--color-muted-foreground)]" />
               我的待办
+              {currentProject && (
+                <span
+                  className="w-2 h-2 rounded-full inline-block ml-1"
+                  style={{ background: currentProject.color }}
+                  title={currentProject.name}
+                />
+              )}
             </h2>
             <span className="text-xs text-[var(--color-muted-foreground)]">
               {pendingTodos.length} 项待办

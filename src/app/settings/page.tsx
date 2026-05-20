@@ -29,6 +29,7 @@ const PROVIDER_MODELS: Record<AIProvider, { label: string; value: string }[]> = 
 function collectAllData(): Record<string, unknown> {
   const keys = [
     "prd-docs", "saved-terms", "pm-todos", "prototypes",
+    "pm-projects", "pm-current-project",
     "ai-config", "workflow-dismissed",
   ];
   const data: Record<string, unknown> = {};
@@ -50,6 +51,7 @@ function restoreAllData(data: Record<string, unknown>) {
 function clearAllData() {
   const keys = [
     "prd-docs", "saved-terms", "pm-todos", "prototypes",
+    "pm-projects", "pm-current-project",
     "workflow-dismissed",
   ];
   keys.forEach((key) => localStorage.removeItem(key));
