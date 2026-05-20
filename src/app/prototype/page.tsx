@@ -265,7 +265,6 @@ export default function PrototypePage() {
                       </button>
                     </div>
                   )}
-                  )}
                 </div>
                 <div className="flex gap-1">
                   <button
@@ -282,7 +281,6 @@ export default function PrototypePage() {
                     <Download className="w-3.5 h-3.5" />
                     下载 HTML
                   </button>
-                </div>
                 </div>
               </div>
               <div className={`h-[600px] flex justify-center ${device === "mobile" ? "bg-gray-100 p-4" : ""}`}>
