@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { callAI, callAIStream } from "@/lib/ai";
 import { transcribeAudio } from "@/lib/whisper";
 import { TERMS_BATCH_SYSTEM_PROMPT } from "@/lib/prompts/terms";
@@ -9,7 +9,7 @@ import { exportPRD, type ExportFormat } from "@/lib/export";
 import {
   Mic, MicOff, Upload, Loader2, Copy, Check, FileText, BookOpen,
   Sparkles, RefreshCw, AlertCircle, Edit3, CheckCircle, ChevronRight,
-  Download, ChevronDown,
+  Download, ChevronDown, Eye, Lightbulb, MessageSquare, Brain,
 } from "lucide-react";
 import { MD } from "@/components/markdown";
 
@@ -71,6 +71,32 @@ const ITERATE_SYSTEM_PROMPT = `你是一位资深的 ToB 产品经理助手。
 
 输出完整的更新后 PRD。`;
 
+const REALTIME_AI_PROMPT = `你是一位资深的产品经理沟通教练，正在实时辅助 PM 和甲方（医疗行业客户）的会议。
+
+以下是最近一段对话的实时转录内容。请分析甲方说话的内容，给出简明的建议：
+
+1. **甲方意图**：甲方这段话背后的真实需求或担忧是什么？
+2. **建议回应**：PM 应该怎么接话？（给出一句具体的话术）
+3. **追问要点**：有哪些关键信息需要当场追问确认？
+
+注意：
+- 只关注甲方说的话（可能包含"我们想要""能不能""预算""太贵了""太慢了""什么时候""和XX对接"等关键词）
+- 如果这段对话主要是 PM 在说话，指出是否遗漏了关键问题
+- 回复控制在 200 字以内，简明扼要
+- 用中文回复`;
+
+const CLIENT_KEYWORDS = [
+  "我们想要", "能不能", "可不可以", "有没有", "需要", "希望",
+  "预算", "太贵了", "便宜", "费用", "成本", "价格",
+  "太慢了", "什么时候", "多久", "排期", "上线",
+  "和XX对接", "对接", "集成", "接口", "数据同步",
+  "加个功能", "再加", "还想要", "能不能加",
+  "别的公司", "竞品", "XX系统", "参考",
+  "领导说", "院长", "主任", "科室",
+  "不满意", "不好用", "出问题", "bug", "报错",
+  "合同", "验收", "付款",
+];
+
 async function readStream(stream: ReadableStream<string>, onChunk: (acc: string) => void) {
   const reader = stream.getReader();
   let acc = "";
@@ -81,6 +107,29 @@ async function readStream(stream: ReadableStream<string>, onChunk: (acc: string)
     onChunk(acc);
   }
 }
+
+// ── Types for real-time transcription ──
+
+interface TranscriptSegment {
+  id: string;
+  text: string;
+  timestamp: number;
+  isClient: boolean;
+}
+
+interface AITip {
+  id: string;
+  content: string;
+  timestamp: number;
+  triggerText: string;
+}
+
+function getSpeechRecognition(): SpeechRecognitionConstructor | null {
+  if (typeof window === "undefined") return null;
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+// ── Main component ──
 
 export default function RecordingPage() {
   const [step, setStep] = useState<Step>("record");
@@ -104,6 +153,153 @@ export default function RecordingPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Real-time transcription state
+  const [realtimeSegments, setRealtimeSegments] = useState<TranscriptSegment[]>([]);
+  const [aiTips, setAiTips] = useState<AITip[]>([]);
+  const [currentTip, setCurrentTip] = useState("");
+  const [showRealtimePanel, setShowRealtimePanel] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
+
+  const speechRef = useRef<SpeechRecognition | null>(null);
+  const lastTipTimeRef = useRef<number>(0);
+  const segmentBufferRef = useRef<string>("");
+  const tipAbortRef = useRef<AbortController | null>(null);
+  const realtimePanelRef = useRef<HTMLDivElement>(null);
+
+  // Check speech recognition support
+  useEffect(() => {
+    setSpeechSupported(!!getSpeechRecognition());
+  }, []);
+
+  // Auto-scroll realtime panel
+  useEffect(() => {
+    if (realtimePanelRef.current) {
+      realtimePanelRef.current.scrollTop = realtimePanelRef.current.scrollHeight;
+    }
+  }, [realtimeSegments, currentTip]);
+
+  // Cleanup speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (speechRef.current) {
+        speechRef.current.abort();
+      }
+      if (tipAbortRef.current) {
+        tipAbortRef.current.abort();
+      }
+    };
+  }, []);
+
+  // ── Real-time speech recognition ──
+
+  const startSpeechRecognition = useCallback(() => {
+    const SpeechRecognition = getSpeechRecognition();
+    if (!SpeechRecognition) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "zh-CN";
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let interimText = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          const text = result[0].transcript.trim();
+          if (text) {
+            const isClient = CLIENT_KEYWORDS.some((kw) => text.includes(kw));
+            const seg: TranscriptSegment = {
+              id: `seg-${Date.now()}-${i}`,
+              text,
+              timestamp: Date.now(),
+              isClient,
+            };
+            setRealtimeSegments((prev) => [...prev, seg]);
+            segmentBufferRef.current += text + "\n";
+          }
+        } else {
+          interimText += result[0].transcript;
+        }
+      }
+
+      // Trigger AI analysis every ~15 seconds
+      const now = Date.now();
+      if (now - lastTipTimeRef.current > 15000 && segmentBufferRef.current.trim().length > 20) {
+        triggerAIAnalysis(segmentBufferRef.current.trim());
+        lastTipTimeRef.current = now;
+        segmentBufferRef.current = "";
+      }
+    };
+
+    recognition.onerror = () => {
+      // Restart on error (common with continuous recognition)
+    };
+
+    recognition.onend = () => {
+      // Auto-restart if still recording
+      if (mediaRecorderRef.current?.state === "recording") {
+        try {
+          recognition.start();
+        } catch {
+          // Ignore if already started
+        }
+      }
+    };
+
+    speechRef.current = recognition;
+
+    try {
+      recognition.start();
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  const stopSpeechRecognition = useCallback(() => {
+    if (speechRef.current) {
+      speechRef.current.abort();
+      speechRef.current = null;
+    }
+    if (tipAbortRef.current) {
+      tipAbortRef.current.abort();
+    }
+  }, []);
+
+  const triggerAIAnalysis = async (text: string) => {
+    if (!text.trim()) return;
+    try {
+      const stream = callAIStream(
+        `以下是会议中最近的对话片段：\n\n${text}`,
+        REALTIME_AI_PROMPT
+      );
+      const reader = stream.getReader();
+      let acc = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += value;
+        setCurrentTip(acc);
+      }
+      if (acc) {
+        setAiTips((prev) => [
+          ...prev,
+          {
+            id: `tip-${Date.now()}`,
+            content: acc,
+            timestamp: Date.now(),
+            triggerText: text.substring(0, 100),
+          },
+        ]);
+      }
+    } catch {
+      // Silently fail - real-time tips are best-effort
+    }
+  };
+
+  // ── Original recording logic (preserved) ──
 
   useEffect(() => {
     return () => {
@@ -130,6 +326,16 @@ export default function RecordingPage() {
       setRecording(true);
       setDuration(0);
       resetState();
+
+      // Start real-time speech recognition
+      setRealtimeSegments([]);
+      setAiTips([]);
+      setCurrentTip("");
+      setShowRealtimePanel(true);
+      lastTipTimeRef.current = Date.now();
+      segmentBufferRef.current = "";
+      startSpeechRecognition();
+
       const t = setInterval(() => setDuration((d) => d + 1), 1000);
       setTimer(t);
     } catch {
@@ -142,6 +348,7 @@ export default function RecordingPage() {
       mediaRecorderRef.current.stop();
       setRecording(false);
       if (timer) clearInterval(timer);
+      stopSpeechRecognition();
     }
   };
 
@@ -177,6 +384,7 @@ export default function RecordingPage() {
         setStep("record");
         return;
       }
+      // Use Whisper transcript as primary, merge realtime segments as supplementary
       setTranscript(text);
 
       const [termsRes] = await Promise.all([
@@ -267,53 +475,168 @@ export default function RecordingPage() {
         </p>
       </div>
 
-      {/* ===== Step 1: Record ===== */}
-      <div className="rounded-xl border border-[var(--color-border)] p-6 mb-6">
-        <div className="flex items-center gap-6">
-          <button
-            onClick={recording ? stopRecording : startRecording}
-            className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shrink-0 shadow-lg ${
-              recording ? "bg-red-500 hover:bg-red-600 animate-pulse" : "bg-[var(--color-primary)] hover:bg-blue-700"
-            }`}
-          >
-            {recording ? <MicOff className="w-8 h-8 text-white" /> : <Mic className="w-8 h-8 text-white" />}
-          </button>
-          <div className="flex-1">
-            {recording ? (
-              <div>
-                <div className="text-2xl font-mono font-bold text-red-500">{formatDuration(duration)}</div>
-                <p className="text-sm text-[var(--color-muted-foreground)]">正在录音... 点击停止</p>
+      {/* Recording area + Real-time panel */}
+      <div className={`flex gap-4 ${showRealtimePanel && recording ? "flex-row" : ""}`}>
+        {/* Left: recording controls */}
+        <div className={`${showRealtimePanel && recording ? "flex-1 min-w-0" : "w-full"}`}>
+          <div className="rounded-xl border border-[var(--color-border)] p-6 mb-6">
+            <div className="flex items-center gap-6">
+              <button
+                onClick={recording ? stopRecording : startRecording}
+                className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shrink-0 shadow-lg ${
+                  recording ? "bg-red-500 hover:bg-red-600 animate-pulse" : "bg-[var(--color-primary)] hover:bg-blue-700"
+                }`}
+              >
+                {recording ? <MicOff className="w-8 h-8 text-white" /> : <Mic className="w-8 h-8 text-white" />}
+              </button>
+              <div className="flex-1">
+                {recording ? (
+                  <div>
+                    <div className="text-2xl font-mono font-bold text-red-500">{formatDuration(duration)}</div>
+                    <p className="text-sm text-[var(--color-muted-foreground)]">正在录音... 点击停止</p>
+                    {speechSupported && (
+                      <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                        <Eye className="w-3 h-3" /> 实时语音识别已启动
+                      </p>
+                    )}
+                  </div>
+                ) : audioUrl ? (
+                  <div>
+                    <audio controls src={audioUrl} className="w-full max-w-md" />
+                    <p className="text-xs text-[var(--color-muted-foreground)] mt-1">录音就绪，点击下方分析</p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="font-medium">点击开始录音</p>
+                    <p className="text-xs text-[var(--color-muted-foreground)] mt-1">和甲方或工程师开会时点一下</p>
+                    {speechSupported && (
+                      <p className="text-xs text-blue-600 mt-1">支持 Chrome 浏览器实时语音识别</p>
+                    )}
+                  </div>
+                )}
               </div>
-            ) : audioUrl ? (
-              <div>
-                <audio controls src={audioUrl} className="w-full max-w-md" />
-                <p className="text-xs text-[var(--color-muted-foreground)] mt-1">录音就绪，点击下方分析</p>
+              <div className="shrink-0">
+                <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
+                <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[var(--color-border)] text-sm hover:bg-gray-50">
+                  <Upload className="w-4 h-4" /> 上传录音
+                </button>
               </div>
-            ) : (
-              <div>
-                <p className="font-medium">点击开始录音</p>
-                <p className="text-xs text-[var(--color-muted-foreground)] mt-1">和甲方或工程师开会时点一下</p>
+            </div>
+
+            {audioBlob && step === "record" && (
+              <button onClick={handleTranscribe} className="mt-4 w-full py-3.5 rounded-lg bg-[var(--color-primary)] text-white hover:bg-blue-700 flex items-center justify-center gap-2 text-base font-medium">
+                <Sparkles className="w-5 h-5" /> 开始转写并分析
+              </button>
+            )}
+
+            {step === "transcribing" && (
+              <div className="mt-4 p-4 rounded-lg bg-blue-50 text-blue-700 text-sm flex items-center gap-2">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                正在转写语音并分析需求，请稍候...
               </div>
             )}
           </div>
-          <div className="shrink-0">
-            <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
-            <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[var(--color-border)] text-sm hover:bg-gray-50">
-              <Upload className="w-4 h-4" /> 上传录音
-            </button>
-          </div>
+
+          {/* Post-recording: show realtime transcription summary */}
+          {realtimeSegments.length > 0 && !recording && step === "record" && audioBlob && (
+            <div className="rounded-xl border border-[var(--color-border)] mb-6">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)]">
+                <span className="text-sm font-medium flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-blue-500" /> 实时转录记录
+                </span>
+                <span className="text-xs text-[var(--color-muted-foreground)]">
+                  {realtimeSegments.length} 段 · {aiTips.length} 条 AI 建议
+                </span>
+              </div>
+              <div className="p-4 max-h-[200px] overflow-y-auto">
+                <div className="space-y-1.5">
+                  {realtimeSegments.map((seg) => (
+                    <div
+                      key={seg.id}
+                      className={`text-sm px-2.5 py-1.5 rounded ${
+                        seg.isClient
+                          ? "bg-orange-50 text-orange-800 border-l-2 border-orange-400"
+                          : "text-gray-600"
+                      }`}
+                    >
+                      {seg.isClient && <span className="text-xs font-medium text-orange-600 mr-1">甲方</span>}
+                      {seg.text}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {aiTips.length > 0 && (
+                <div className="border-t border-[var(--color-border)] p-4">
+                  <p className="text-xs font-medium text-[var(--color-muted-foreground)] mb-2">AI 建议（录音中）</p>
+                  <div className="space-y-2">
+                    {aiTips.map((tip) => (
+                      <div key={tip.id} className="bg-blue-50 rounded-lg p-2.5 text-xs text-blue-800">
+                        {tip.content}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {audioBlob && step === "record" && (
-          <button onClick={handleTranscribe} className="mt-4 w-full py-3.5 rounded-lg bg-[var(--color-primary)] text-white hover:bg-blue-700 flex items-center justify-center gap-2 text-base font-medium">
-            <Sparkles className="w-5 h-5" /> 开始转写并分析
-          </button>
-        )}
+        {/* Right: Real-time panel (only during recording) */}
+        {showRealtimePanel && recording && (
+          <div className="w-96 shrink-0 rounded-xl border border-blue-200 bg-slate-50 flex flex-col max-h-[600px]">
+            <div className="px-4 py-3 border-b border-blue-200 bg-blue-50 rounded-t-xl">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-blue-700 flex items-center gap-1.5">
+                  <Eye className="w-4 h-4" /> 实时语音识别
+                </span>
+                <span className="text-xs text-blue-500">{realtimeSegments.length} 段</span>
+              </div>
+            </div>
 
-        {step === "transcribing" && (
-          <div className="mt-4 p-4 rounded-lg bg-blue-50 text-blue-700 text-sm flex items-center gap-2">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            正在转写语音并分析需求，请稍候...
+            {/* Transcription area */}
+            <div ref={realtimePanelRef} className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {realtimeSegments.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-4">
+                  等待语音输入... 请开始说话
+                </p>
+              )}
+              {realtimeSegments.map((seg) => (
+                <div
+                  key={seg.id}
+                  className={`text-sm px-2.5 py-1.5 rounded ${
+                    seg.isClient
+                      ? "bg-orange-50 text-orange-800 border-l-2 border-orange-400"
+                      : "bg-white text-gray-600 border border-gray-100"
+                  }`}
+                >
+                  {seg.isClient && (
+                    <span className="text-xs font-medium text-orange-600 block mb-0.5">
+                      可能是甲方
+                    </span>
+                  )}
+                  {seg.text}
+                </div>
+              ))}
+            </div>
+
+            {/* AI Tips area */}
+            <div className="border-t border-blue-200 p-3 bg-white rounded-b-xl">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Brain className="w-3.5 h-3.5 text-purple-500" />
+                <span className="text-xs font-medium text-purple-700">AI 实时提示</span>
+              </div>
+              {currentTip ? (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-2.5 text-xs text-purple-800 leading-relaxed">
+                  {currentTip}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400">
+                  {realtimeSegments.length > 0
+                    ? "分析中，约 15 秒后出建议..."
+                    : "开始对话后，AI 会自动分析甲方意图"}
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -336,10 +659,50 @@ export default function RecordingPage() {
             <span className="text-[var(--color-muted-foreground)]">生成 PRD</span>
           </div>
 
+          {/* Realtime transcription summary (review phase) */}
+          {realtimeSegments.length > 0 && (
+            <details className="rounded-xl border border-blue-200">
+              <summary className="px-4 py-3 text-sm font-medium cursor-pointer hover:bg-blue-50 flex items-center gap-2">
+                <Eye className="w-4 h-4 text-blue-400" /> 实时转录 + AI 提示（{realtimeSegments.length} 段 / {aiTips.length} 条建议）
+              </summary>
+              <div className="border-t border-blue-200">
+                <div className="p-4 max-h-[300px] overflow-y-auto space-y-1.5">
+                  {realtimeSegments.map((seg) => (
+                    <div
+                      key={seg.id}
+                      className={`text-sm px-2.5 py-1.5 rounded ${
+                        seg.isClient
+                          ? "bg-orange-50 text-orange-800 border-l-2 border-orange-400"
+                          : "text-gray-600"
+                      }`}
+                    >
+                      {seg.isClient && <span className="text-xs font-medium text-orange-600 mr-1">甲方</span>}
+                      {seg.text}
+                    </div>
+                  ))}
+                </div>
+                {aiTips.length > 0 && (
+                  <div className="border-t border-blue-200 p-4">
+                    <p className="text-xs font-medium text-purple-600 mb-2 flex items-center gap-1">
+                      <Brain className="w-3.5 h-3.5" /> 录音中 AI 建议
+                    </p>
+                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                      {aiTips.map((tip) => (
+                        <div key={tip.id} className="bg-purple-50 border border-purple-200 rounded-lg p-2.5 text-xs text-purple-800">
+                          {tip.content}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </details>
+          )}
+
           {/* Transcript (collapsible) */}
           <details className="rounded-xl border border-[var(--color-border)]">
             <summary className="px-4 py-3 text-sm font-medium cursor-pointer hover:bg-gray-50 flex items-center gap-2">
-              <FileText className="w-4 h-4 text-gray-400" /> 原始对话记录（点击展开）
+              <FileText className="w-4 h-4 text-gray-400" /> 原始对话记录（Whisper 完整转写）
             </summary>
             <div className="px-4 pb-4 max-h-[300px] overflow-y-auto text-sm text-[var(--color-muted-foreground)] whitespace-pre-wrap border-t border-[var(--color-border)] pt-3">
               {transcript}
@@ -479,6 +842,11 @@ export default function RecordingPage() {
             <li>你<strong>审核/修改</strong>总结（改错、补漏、删错）</li>
             <li>确认后<strong>一键生成 PRD</strong>（或迭代已有 PRD）</li>
           </ol>
+          {speechSupported && (
+            <p className="mt-2 text-xs">
+              <strong>实时辅助：</strong>录音时右侧会显示实时语音识别和 AI 提示，帮助你在会议中更好地应对甲方。仅支持 Chrome 浏览器。
+            </p>
+          )}
         </div>
       )}
     </div>

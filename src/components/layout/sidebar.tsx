@@ -14,11 +14,13 @@ import {
   Settings,
   Menu,
   X,
+  MessageCircleHeart,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "工作台", icon: LayoutDashboard },
   { href: "/recording", label: "录音分析", icon: Mic },
+  { href: "/comm-guide", label: "沟通教练", icon: MessageCircleHeart },
   { href: "/terms", label: "医学术语", icon: BookOpen },
   { href: "/prd", label: "PRD 生成", icon: FileText },
   { href: "/prototype", label: "原型生成", icon: Monitor },
