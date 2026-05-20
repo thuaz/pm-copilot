@@ -4,6 +4,7 @@ import { useState } from "react";
 import { callAI, callAIStream } from "@/lib/ai";
 import { TERMS_SYSTEM_PROMPT, TERMS_BATCH_SYSTEM_PROMPT } from "@/lib/prompts/terms";
 import { Search, FileText, Loader2, Copy, Check, Star, Trash2 } from "lucide-react";
+import { MD } from "@/components/markdown";
 
 interface SavedTerm {
   term: string;
@@ -261,8 +262,8 @@ export default function TermsPage() {
                   </button>
                 </div>
               </div>
-              <div className="p-4 prose prose-sm max-w-none whitespace-pre-wrap">
-                {result}
+              <div className="p-4 prose prose-sm max-w-none">
+                <MD>{result}</MD>
                 {loading && <span className="inline-block w-2 h-4 bg-[var(--color-primary)] animate-pulse ml-0.5 align-text-bottom" />}
               </div>
             </div>

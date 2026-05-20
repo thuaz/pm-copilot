@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { callAI, callAIStream } from "@/lib/ai";
 import { Loader2, ArrowRightLeft, MessageSquare, BookOpen, Copy, Check } from "lucide-react";
+import { MD } from "@/components/markdown";
 
 type DevMode = "translate" | "explain" | "template";
 
@@ -206,8 +207,8 @@ export default function DevCommPage() {
               )}
             </button>
           </div>
-          <div className="p-4 prose prose-sm max-w-none whitespace-pre-wrap">
-            {result}
+          <div className="p-4 prose prose-sm max-w-none">
+            <MD>{result}</MD>
             {loading && <span className="inline-block w-2 h-4 bg-[var(--color-primary)] animate-pulse ml-0.5 align-text-bottom" />}
           </div>
         </div>

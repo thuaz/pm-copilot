@@ -11,6 +11,7 @@ import {
   Sparkles, RefreshCw, AlertCircle, Edit3, CheckCircle, ChevronRight,
   Download, ChevronDown,
 } from "lucide-react";
+import { MD } from "@/components/markdown";
 
 type Step = "record" | "transcribing" | "review" | "generating" | "done";
 
@@ -205,8 +206,8 @@ export default function RecordingPage() {
       );
       await readStream(stream, (acc) => {
         setGeneratedPRD(acc);
-        setStep("done");
       });
+      setStep("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : "生成失败");
       setStep("review");
@@ -229,8 +230,8 @@ export default function RecordingPage() {
       await readStream(stream, (acc) => {
         finalContent = acc;
         setGeneratedPRD(acc);
-        setStep("done");
       });
+      setStep("done");
       const iterated = iteratePRD(selectedPRD, finalContent, `会议录音迭代 v${existing.version} → v${existing.version + 1}`);
       if (iterated) setGeneratedPRD(iterated.content);
     } catch (e) {
@@ -351,8 +352,8 @@ export default function RecordingPage() {
               <summary className="px-4 py-3 text-sm font-medium cursor-pointer hover:bg-gray-50 flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-gray-400" /> 术语解析（点击展开）
               </summary>
-              <div className="px-4 pb-4 max-h-[300px] overflow-y-auto text-sm whitespace-pre-wrap border-t border-[var(--color-border)] pt-3">
-                {terms}
+              <div className="px-4 pb-4 max-h-[300px] overflow-y-auto text-sm border-t border-[var(--color-border)] pt-3">
+                <MD>{terms}</MD>
               </div>
             </details>
           )}

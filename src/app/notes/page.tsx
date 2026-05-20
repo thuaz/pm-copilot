@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { callAI, callAIStream } from "@/lib/ai";
 import { Loader2, Sparkles, FileText, Copy, Check } from "lucide-react";
+import { MD } from "@/components/markdown";
 
 export default function NotesPage() {
   const [input, setInput] = useState("");
@@ -106,8 +107,8 @@ export default function NotesPage() {
                   </button>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 prose prose-sm max-w-none whitespace-pre-wrap">
-                {result}
+              <div className="flex-1 overflow-y-auto p-4 prose prose-sm max-w-none">
+                <MD>{result}</MD>
                 {loading && <span className="inline-block w-2 h-4 bg-[var(--color-primary)] animate-pulse ml-0.5 align-text-bottom" />}
               </div>
               <div className="px-4 py-2.5 border-t border-[var(--color-border)]">

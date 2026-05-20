@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { callAIStream } from "@/lib/ai";
 import { PROTOTYPE_SYSTEM_PROMPT } from "@/lib/prompts/terms";
-import { Loader2, Download, Eye, Code, Sparkles, Trash2, FileText, Monitor, Smartphone } from "lucide-react";
+import { Loader2, Download, Eye, Code, Sparkles, Trash2, FileText, Monitor, Smartphone, Save } from "lucide-react";
 
 interface SavedPrototype {
   id: string;
@@ -68,13 +68,6 @@ export default function PrototypePage() {
           acc.match(/<html[\s\S]*<\/html>/i);
         setHtmlCode(htmlMatch ? htmlMatch[0] : acc);
       }
-      // Auto-save after generation completes
-      const finalCode = (() => {
-        const m = acc.match(/<!DOCTYPE html>[\s\S]*<\/html>/i) ||
-          acc.match(/<html[\s\S]*<\/html>/i);
-        return m ? m[0] : acc;
-      })();
-      handleSave(finalCode, input);
     } catch (e) {
       setError(e instanceof Error ? e.message : "生成失败");
     } finally {
@@ -272,14 +265,25 @@ export default function PrototypePage() {
                       </button>
                     </div>
                   )}
+                  )}
                 </div>
-                <button
-                  onClick={handleDownload}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded text-xs text-gray-500 hover:bg-gray-100"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  下载 HTML
-                </button>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => handleSave()}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs text-gray-500 hover:bg-gray-100"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    保存到历史
+                  </button>
+                  <button
+                    onClick={handleDownload}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs text-gray-500 hover:bg-gray-100"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    下载 HTML
+                  </button>
+                </div>
+                </div>
               </div>
               <div className={`h-[600px] flex justify-center ${device === "mobile" ? "bg-gray-100 p-4" : ""}`}>
                 {view === "preview" ? (

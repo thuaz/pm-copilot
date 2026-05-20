@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { callAI, callAIStream } from "@/lib/ai";
+import { callAIStream } from "@/lib/ai";
 import { PRD_SYSTEM_PROMPT } from "@/lib/prompts/terms";
 import { getAllPRDs, createPRD, iteratePRD, type PRDDocument } from "@/lib/prd-store";
 import { exportPRD, type ExportFormat } from "@/lib/export";
@@ -21,6 +21,7 @@ import {
   ChevronDown,
   Search,
 } from "lucide-react";
+import { MD } from "@/components/markdown";
 
 type View = "list" | "chat" | "wizard" | "detail";
 
@@ -39,9 +40,17 @@ export default function PRDPage() {
   // Iteration
   const [iterating, setIterating] = useState(false);
   const [iterInput, setIterInput] = useState("");
+  const [iterOutput, setIterOutput] = useState("");
 
   useEffect(() => {
     setPrds(getAllPRDs());
+    const draft = localStorage.getItem("prd-draft");
+    if (draft) {
+      localStorage.removeItem("prd-draft");
+      setChatInput(`请根据以下会议分析结果生成 PRD：\n\n${draft}`);
+      setView("chat");
+      setChatHistory([]);
+    }
   }, []);
 
   const refreshList = () => setPrds(getAllPRDs());
@@ -137,12 +146,21 @@ export default function PRDPage() {
   const handleIterate = async () => {
     if (!selectedPRD || !iterInput.trim()) return;
     setIterating(true);
+    setIterOutput("");
     try {
-      const res = await callAI(
+      const stream = callAIStream(
         `## 现有 PRD（v${selectedPRD.version}）：\n\n${selectedPRD.content}\n\n---\n\n## 反馈/修改意见：\n\n${iterInput}`,
         `你是一位产品经理助手。根据反馈意见更新现有 PRD 文档。在顶部添加「迭代记录」说明改了什么。输出完整的更新后 PRD。`
       );
-      const updated = iteratePRD(selectedPRD.id, res, `手动迭代 v${selectedPRD.version} → v${selectedPRD.version + 1}`);
+      const reader = stream.getReader();
+      let acc = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += value;
+        setIterOutput(acc);
+      }
+      const updated = iteratePRD(selectedPRD.id, acc, `手动迭代 v${selectedPRD.version} → v${selectedPRD.version + 1}`);
       if (updated) {
         setSelectedPRD(updated);
         refreshList();
@@ -221,8 +239,8 @@ export default function PRDPage() {
             </button>
           </div>
         </div>
-        <div className="rounded-xl border border-[var(--color-border)] p-5 max-h-[500px] overflow-y-auto prose prose-sm max-w-none whitespace-pre-wrap mb-4">
-          {selectedPRD.content}
+        <div className="rounded-xl border border-[var(--color-border)] p-5 max-h-[500px] overflow-y-auto prose prose-sm max-w-none mb-4">
+          <MD>{selectedPRD.content}</MD>
         </div>
         {/* Iteration */}
         <div className="rounded-xl border border-[var(--color-border)] p-4">
@@ -250,6 +268,18 @@ export default function PRDPage() {
               迭代
             </button>
           </div>
+          {(iterating || iterOutput) && (
+            <div className="mt-3 rounded-lg border border-green-200 bg-green-50/50">
+              <div className="px-3 py-2 border-b border-green-200 text-xs font-medium text-green-700">
+                迭代结果 {iterating && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
+              </div>
+              <div className="p-3 max-h-[300px] overflow-y-auto prose prose-sm max-w-none text-sm">
+                {iterOutput && <MD>{iterOutput}</MD>}
+                {iterating && !iterOutput && <span className="text-xs text-gray-400">正在生成迭代内容...</span>}
+                {iterating && iterOutput && <span className="inline-block w-2 h-4 bg-green-600 animate-pulse ml-0.5 align-text-bottom" />}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -390,8 +420,8 @@ export default function PRDPage() {
                 )}
                 {chatHistory.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm whitespace-pre-wrap ${msg.role === "user" ? "bg-[var(--color-primary)] text-white" : "bg-gray-100"}`}>
-                      {msg.content}
+                    <div className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm ${msg.role === "user" ? "bg-[var(--color-primary)] text-white whitespace-pre-wrap" : "bg-gray-100"}`}>
+                      {msg.role === "ai" ? <MD>{msg.content}</MD> : msg.content}
                     </div>
                   </div>
                 ))}
@@ -451,8 +481,8 @@ export default function PRDPage() {
                   <PRDExportDropdown title={prdOutput.split("\n").find((l) => l.trim() && !l.startsWith("```"))?.replace(/^#+\s*/, "") || "PRD"} content={prdOutput} />
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 prose prose-sm max-w-none whitespace-pre-wrap">
-                    {prdOutput}
+              <div className="flex-1 overflow-y-auto p-4 prose prose-sm max-w-none">
+                    <MD>{prdOutput}</MD>
                     {loading && <span className="inline-block w-2 h-4 bg-[var(--color-primary)] animate-pulse ml-0.5 align-text-bottom" />}
                   </div>
               <div className="px-4 py-2.5 border-t border-[var(--color-border)]">

@@ -2,8 +2,9 @@ import { getAIConfig } from "./ai";
 
 export async function transcribeAudio(audioBlob: Blob): Promise<string> {
   const config = getAIConfig();
-  if (!config?.apiKey) {
-    throw new Error("请先在设置中配置 AI API Key");
+
+  if (config?.provider === "claude") {
+    throw new Error("语音转写暂不支持 Claude，请在设置中切换为硅基流动或 OpenAI");
   }
 
   const mimeType = audioBlob.type || "audio/webm";
@@ -12,29 +13,19 @@ export async function transcribeAudio(audioBlob: Blob): Promise<string> {
 
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("model", "FunAudioLLM/SenseVoiceSmall");
-  formData.append("language", "zh");
 
-  // 硅基流动支持语音转文字，使用 OpenAI 兼容接口
-  const baseUrl = config.provider === "openai"
-    ? "https://api.openai.com/v1"
-    : config.provider === "siliconflow"
-    ? "https://api.siliconflow.cn/v1"
-    : "https://api.openai.com/v1";
+  if (config?.apiKey && config.provider) {
+    formData.append("provider", config.provider);
+    formData.append("apiKey", config.apiKey);
+    if (config.baseUrl) formData.append("baseUrl", config.baseUrl);
+  }
 
-  const res = await fetch(`${baseUrl}/audio/transcriptions`, {
+  const res = await fetch("/api/whisper", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-    },
     body: formData,
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`语音转文字失败: ${res.status} - ${err}`);
-  }
-
   const data = await res.json();
+  if (data.error) throw new Error(data.error);
   return data.text;
 }

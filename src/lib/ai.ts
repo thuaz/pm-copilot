@@ -60,6 +60,9 @@ export function callAIStream(prompt: string, systemPrompt?: string): ReadableStr
 
   return new ReadableStream<string>({
     async start(controller) {
+      const abortController = new AbortController();
+      const timeout = setTimeout(() => abortController.abort(), 120_000);
+
       try {
         const res = await fetch("/api/ai", {
           method: "POST",
@@ -73,6 +76,7 @@ export function callAIStream(prompt: string, systemPrompt?: string): ReadableStr
             baseUrl: config?.baseUrl,
             model: config?.model,
           }),
+          signal: abortController.signal,
         });
 
         if (!res.ok) {
@@ -106,7 +110,15 @@ export function callAIStream(prompt: string, systemPrompt?: string): ReadableStr
         }
         controller.close();
       } catch (e) {
-        controller.error(e);
+        if (e instanceof DOMException && e.name === "AbortError") {
+          controller.error(new Error("请求超时（120秒），请检查网络后重试"));
+        } else if (e instanceof TypeError && e.message.includes("fetch")) {
+          controller.error(new Error("网络连接失败，请检查网络设置"));
+        } else {
+          controller.error(e);
+        }
+      } finally {
+        clearTimeout(timeout);
       }
     },
   });
