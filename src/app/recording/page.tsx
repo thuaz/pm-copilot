@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { callAI, callAIStream } from "@/lib/ai";
+import { callAI, callAIStream, getAIConfig } from "@/lib/ai";
 import { transcribeAudio } from "@/lib/whisper";
 import { TERMS_BATCH_SYSTEM_PROMPT } from "@/lib/prompts/terms";
 import { getAllPRDs, createPRD, iteratePRD, type PRDDocument } from "@/lib/prd-store";
@@ -293,19 +293,52 @@ export default function RecordingPage() {
     tipAbortRef.current = abortController;
 
     try {
-      const stream = callAIStream(
-        `以下是会议中最近的对话片段：\n\n${text}`,
-        REALTIME_AI_PROMPT
-      );
-      const reader = stream.getReader();
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: `以下是会议中最近的对话片段：\n\n${text}`,
+          systemPrompt: REALTIME_AI_PROMPT,
+          stream: true,
+          ...(() => {
+            const config = getAIConfig();
+            return config ? {
+              provider: config.provider,
+              apiKey: config.apiKey,
+              baseUrl: config.baseUrl,
+              model: config.model,
+            } : {};
+          })(),
+        }),
+        signal: abortController.signal,
+      });
+
+      if (!res.ok) return;
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
       let acc = "";
+
       while (true) {
-        // Check abort before each read
         if (abortController.signal.aborted) break;
         const { done, value } = await reader.read();
         if (done) break;
-        acc += value;
-        // Only update state if still mounted and not aborted
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop()!;
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === "data: [DONE]") continue;
+          if (!trimmed.startsWith("data: ")) continue;
+          try {
+            const json = JSON.parse(trimmed.slice(6));
+            if (json.error) return;
+            if (json.content) acc += json.content;
+          } catch {}
+        }
+
         if (mountedRef.current && !abortController.signal.aborted) {
           setCurrentTip(acc);
         }
@@ -343,12 +376,17 @@ export default function RecordingPage() {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "audio/webm"; // fallback, will throw if truly unsupported
+      const mr = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mr;
       chunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const blob = new Blob(chunksRef.current, { type: mimeType });
         setAudioBlob(blob);
         if (audioUrl) URL.revokeObjectURL(audioUrl);
         setAudioUrl(URL.createObjectURL(blob));
@@ -490,8 +528,10 @@ export default function RecordingPage() {
         stepDoneGuardRef.current = true;
         setStep("done");
       }
-      const iterated = iteratePRD(selectedPRD, finalContent, `会议录音迭代 v${existing.version} → v${existing.version + 1}`);
-      if (iterated && mountedRef.current) setGeneratedPRD(iterated.content);
+      if (mountedRef.current) {
+        const iterated = iteratePRD(selectedPRD, finalContent, `会议录音迭代 v${existing.version} → v${existing.version + 1}`);
+        if (iterated) setGeneratedPRD(iterated.content);
+      }
     } catch (e) {
       if (mountedRef.current) {
         setError(e instanceof Error ? e.message : "迭代失败");

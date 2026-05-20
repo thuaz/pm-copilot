@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { callAIStream } from "@/lib/ai";
 import {
   Loader2, Sparkles, FileText, Copy, Check, Clock, Trash2,
@@ -27,6 +28,7 @@ function saveNotesList(notes: SavedNote[]) {
 }
 
 export default function NotesPage() {
+  const router = useRouter();
   const [input, setInput] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
@@ -107,7 +109,7 @@ export default function NotesPage() {
   const handleToPRD = () => {
     if (!result) return;
     localStorage.setItem("prd-draft", result);
-    window.location.href = "/prd";
+    router.push("/prd");
   };
 
   const filteredNotes = savedNotes.filter((n) => {

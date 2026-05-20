@@ -69,6 +69,7 @@ export default function PRDPage() {
     if (!chatInput.trim()) return;
     const userMsg = chatInput.trim();
     setChatInput("");
+    setError("");
     setChatHistory((prev) => [...prev, { role: "user", content: userMsg }]);
     setLoading(true);
     try {
@@ -104,6 +105,7 @@ export default function PRDPage() {
   const handleGenerateFromChat = async () => {
     if (chatHistory.length === 0) return;
     setLoading(true);
+    setError("");
     setPrdOutput("");
     try {
       const prompt = `根据以下对话内容，生成一份完整的 PRD 文档：\n\n${chatHistory.map((m) => `${m.role === "user" ? "用户" : "助手"}：${m.content}`).join("\n")}`;
@@ -134,6 +136,7 @@ export default function PRDPage() {
     const filled = steps.filter((s) => wizardData[s.key]?.trim());
     if (filled.length === 0) return;
     setLoading(true);
+    setError("");
     setPrdOutput("");
     try {
       const prompt = `请根据以下信息生成 PRD：\n\n${filled.map((s) => `## ${s.label}\n${wizardData[s.key]}`).join("\n\n")}`;
@@ -156,6 +159,7 @@ export default function PRDPage() {
   const handleIterate = async () => {
     if (!selectedPRD || !iterInput.trim()) return;
     setIterating(true);
+    setError("");
     setIterOutput("");
     try {
       const stream = callAIStream(
@@ -221,7 +225,11 @@ export default function PRDPage() {
   };
 
   // PRD Detail View
-  if (view === "detail" && selectedPRD) {
+  if (view === "detail") {
+    if (!selectedPRD) {
+      setView("list");
+      return null;
+    }
     return (
       <div>
         <button

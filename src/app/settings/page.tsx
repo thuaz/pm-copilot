@@ -28,9 +28,9 @@ const PROVIDER_MODELS: Record<AIProvider, { label: string; value: string }[]> = 
 
 function collectAllData(): Record<string, unknown> {
   const keys = [
-    "prd-docs", "saved-terms", "pm-todos", "prototypes",
+    "prd-docs", "prd-draft", "saved-terms", "saved-notes", "pm-todos", "prototypes",
     "pm-projects", "pm-current-project",
-    "ai-config", "workflow-dismissed",
+    "ai-config", "workflow-dismissed", "comm-guide-favorites",
   ];
   const data: Record<string, unknown> = {};
   keys.forEach((key) => {
@@ -50,9 +50,9 @@ function restoreAllData(data: Record<string, unknown>) {
 
 function clearAllData() {
   const keys = [
-    "prd-docs", "saved-terms", "pm-todos", "prototypes",
+    "prd-docs", "prd-draft", "saved-terms", "saved-notes", "pm-todos", "prototypes",
     "pm-projects", "pm-current-project",
-    "workflow-dismissed",
+    "ai-config", "workflow-dismissed", "comm-guide-favorites",
   ];
   keys.forEach((key) => localStorage.removeItem(key));
 }

@@ -26,7 +26,7 @@ function downloadFile(filename: string, content: string, mime: string) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function markdownToHTML(md: string): string {
@@ -36,9 +36,10 @@ function markdownToHTML(md: string): string {
     .replace(/^# (.+)$/gm, "<h1>$1</h1>")
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/^- (.+)$/gm, "<li>$1</li>")
-    .replace(/(<li>.*<\/li>\n?)+/g, (m) => `<ul>${m}</ul>`)
+    .replace(/^- (.+)$/gm, "<li class=\"ul-item\">$1</li>")
+    .replace(/(<li class=\"ul-item\">.*<\/li>\n?)+/g, (m) => `<ul>${m.replace(/ class="ul-item"/g, "")}</ul>`)
     .replace(/^\d+\. (.+)$/gm, "<li>$1</li>")
+    .replace(/(<li>.*<\/li>\n?)+/g, (m) => `<ol>${m}</ol>`)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\n{2,}/g, "<br><br>")
     .replace(/\n/g, "<br>");

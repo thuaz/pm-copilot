@@ -890,10 +890,8 @@ export default function CommGuidePage() {
   };
 
   const filteredScripts = useMemo(() => {
-    let items = currentScripts;
-    if (activeCategory !== "faq") {
-      items = currentScripts.filter((s) => s.scenario === activeCategory);
-    }
+    if (activeCategory === "faq") return [];
+    let items = currentScripts.filter((s) => s.scenario === activeCategory);
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       items = items.filter(

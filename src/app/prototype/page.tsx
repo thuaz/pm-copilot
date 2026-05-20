@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { callAIStream } from "@/lib/ai";
 import { PROTOTYPE_SYSTEM_PROMPT, DESIGN_PROMPT_SYSTEM } from "@/lib/prompts/terms";
+import { MD } from "@/components/markdown";
 import {
   Loader2, Download, Eye, Code, Sparkles, Trash2, FileText,
   Monitor, Smartphone, Save, Copy, Check, Search, Image, ExternalLink,
@@ -421,7 +422,7 @@ export default function PrototypePage() {
                 </span>
               </div>
               <div className="p-4 prose prose-sm max-w-none text-sm">
-                {similarLinks}
+                <MD>{similarLinks}</MD>
                 {loading && progress === "searching" && (
                   <span className="inline-block w-2 h-4 bg-[var(--color-primary)] animate-pulse ml-0.5 align-text-bottom" />
                 )}
@@ -469,7 +470,7 @@ export default function PrototypePage() {
                 </div>
               </div>
               <div className="p-4 prose prose-sm max-w-none text-sm">
-                {designPrompt}
+                <MD>{designPrompt}</MD>
                 {loading && progress === "prompting" && (
                   <span className="inline-block w-2 h-4 bg-purple-500 animate-pulse ml-0.5 align-text-bottom" />
                 )}

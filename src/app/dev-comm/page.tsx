@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { callAI, callAIStream } from "@/lib/ai";
+import { callAIStream } from "@/lib/ai";
 import { Loader2, ArrowRightLeft, MessageSquare, BookOpen, Copy, Check } from "lucide-react";
 import { MD } from "@/components/markdown";
 
