@@ -135,6 +135,18 @@ function getSpeechRecognition(): SpeechRecognitionConstructor | null {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+type SpeechStatus = "checking" | "unsupported" | "no-https" | "ready" | "no-mic" | "active" | "error";
+
+function checkSpeechSupport(): { status: SpeechStatus; message: string } {
+  if (typeof window === "undefined") return { status: "checking", message: "检测中..." };
+  const hasAPI = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  if (!hasAPI) return { status: "unsupported", message: "当前浏览器不支持语音识别，请使用 Chrome 浏览器" };
+  if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+    return { status: "no-https", message: "语音识别需要 HTTPS 环境。请通过 https:// 访问本站" };
+  }
+  return { status: "ready", message: "语音识别已就绪" };
+}
+
 // ── Main component ──
 
 export default function RecordingPage() {
@@ -182,6 +194,7 @@ export default function RecordingPage() {
   const [currentTip, setCurrentTip] = useState("");
   const [showRealtimePanel, setShowRealtimePanel] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
+  const [speechStatus, setSpeechStatus] = useState<{ status: SpeechStatus; message: string }>({ status: "checking", message: "检测中..." });
 
   const speechRef = useRef<SpeechRecognition | null>(null);
   const lastTipTimeRef = useRef<number>(0);
@@ -192,7 +205,9 @@ export default function RecordingPage() {
 
   // Check speech recognition support
   useEffect(() => {
-    setSpeechSupported(!!getSpeechRecognition());
+    const result = checkSpeechSupport();
+    setSpeechStatus(result);
+    setSpeechSupported(result.status === "ready");
   }, []);
 
   // Auto-scroll realtime panel
@@ -262,8 +277,15 @@ export default function RecordingPage() {
       }
     };
 
-    recognition.onerror = () => {
-      // Restart on error (common with continuous recognition)
+    recognition.onerror = (event) => {
+      const msg = event.error;
+      if (msg === "not-allowed" || msg === "service-not-allowed") {
+        setSpeechStatus({ status: "no-mic", message: "麦克风权限被拒绝。请在浏览器地址栏左侧点击锁图标，允许麦克风访问" });
+      } else if (msg === "network") {
+        setSpeechStatus({ status: "error", message: "语音识别网络错误，请检查网络连接" });
+      } else if (msg !== "no-speech" && msg !== "aborted") {
+        setSpeechStatus({ status: "error", message: `语音识别出错（${msg}），实时转写暂停` });
+      }
     };
 
     recognition.onend = () => {
@@ -281,8 +303,9 @@ export default function RecordingPage() {
 
     try {
       recognition.start();
-    } catch {
-      // Ignore
+      setSpeechStatus({ status: "active", message: "语音识别已启动" });
+    } catch (e) {
+      setSpeechStatus({ status: "error", message: "语音识别启动失败，实时转写不可用" });
     }
   }, []);
 
@@ -433,6 +456,17 @@ export default function RecordingPage() {
 
   const startRecording = async () => {
     try {
+      // Check microphone permission first
+      try {
+        const permResult = await navigator.permissions.query({ name: "microphone" as PermissionName });
+        if (permResult.state === "denied") {
+          setError("麦克风权限被拒绝。请在浏览器地址栏左侧点击锁图标 → 网站设置 → 麦克风 → 允许");
+          return;
+        }
+      } catch {
+        // permissions.query may not support "microphone", that's ok
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported("audio/webm")
         ? "audio/webm"
@@ -855,6 +889,11 @@ export default function RecordingPage() {
                         <Eye className="w-3 h-3" /> 实时语音识别已启动
                       </p>
                     )}
+                    {!speechSupported && speechStatus.status !== "checking" && (
+                      <p className="text-xs text-amber-600 mt-1 flex items-center gap-1 justify-center sm:justify-start">
+                        <AlertCircle className="w-3 h-3" /> {speechStatus.message}
+                      </p>
+                    )}
                     {quickMode && (
                       <p className="text-xs text-amber-600 mt-1 flex items-center gap-1 justify-center sm:justify-start">
                         <Zap className="w-3 h-3" /> 快速模式已开启 — 停止后自动生成 PRD
@@ -871,7 +910,14 @@ export default function RecordingPage() {
                     <p className="font-medium">点击开始录音</p>
                     <p className="text-xs text-[var(--color-muted-foreground)] mt-1">和甲方或工程师开会时点一下</p>
                     {speechSupported && (
-                      <p className="text-xs text-blue-600 mt-1">支持 Chrome 浏览器实时语音识别</p>
+                      <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" /> Chrome 语音识别已就绪
+                      </p>
+                    )}
+                    {!speechSupported && speechStatus.status !== "checking" && (
+                      <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> {speechStatus.message}
+                      </p>
                     )}
                   </div>
                 )}
@@ -965,9 +1011,20 @@ export default function RecordingPage() {
             {/* Transcription area */}
             <div ref={realtimePanelRef} className="flex-1 overflow-y-auto p-3 space-y-1.5">
               {realtimeSegments.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-4">
-                  等待语音输入... 请开始说话
-                </p>
+                <div className="text-xs text-center py-4">
+                  {speechStatus.status === "active" || speechSupported ? (
+                    <p className="text-gray-400">等待语音输入... 请开始说话</p>
+                  ) : speechStatus.status === "no-mic" ? (
+                    <p className="text-amber-600">{speechStatus.message}</p>
+                  ) : speechStatus.status === "error" ? (
+                    <p className="text-red-500">{speechStatus.message}</p>
+                  ) : speechStatus.status === "no-https" ? (
+                    <p className="text-amber-600">{speechStatus.message}</p>
+                  ) : (
+                    <p className="text-amber-600">实时语音识别不可用（{speechStatus.message}）</p>
+                  )}
+                  <p className="text-gray-300 mt-2">录音本身不受影响，转写将在录音结束后由 AI 完成</p>
+                </div>
               )}
               {realtimeSegments.map((seg) => (
                 <div
