@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { callAIStream } from "@/lib/ai";
+import { useProject } from "@/lib/project-context";
 import { PROTOTYPE_SYSTEM_PROMPT, PROTOTYPE_ITERATE_PROMPT, DESIGN_PROMPT_SYSTEM } from "@/lib/prompts/terms";
 import { MD } from "@/components/markdown";
 import {
@@ -17,6 +18,7 @@ interface SavedPrototype {
   htmlCode: string;
   designPrompt: string;
   createdAt: string;
+  projectId?: string;
 }
 
 function getSavedPrototypes(): SavedPrototype[] {
@@ -43,6 +45,7 @@ const templates = [
 type ProgressStep = "idle" | "generating" | "searching" | "prompting" | "done";
 
 export default function PrototypePage() {
+  const { currentProjectId } = useProject();
   const [input, setInput] = useState("");
   const [htmlCode, setHtmlCode] = useState("");
   const [designPrompt, setDesignPrompt] = useState("");
@@ -64,8 +67,12 @@ export default function PrototypePage() {
   const [currentProtoId, setCurrentProtoId] = useState<string | null>(null);
 
   useEffect(() => {
-    setSavedList(getSavedPrototypes());
-  }, []);
+    const all = getSavedPrototypes();
+    const filtered = currentProjectId
+      ? all.filter((p) => p.projectId === currentProjectId)
+      : all;
+    setSavedList(filtered);
+  }, [currentProjectId]);
 
   const handleGenerate = async () => {
     if (!input.trim()) return;
@@ -197,14 +204,18 @@ export default function PrototypePage() {
     const title = input || "未命名原型";
 
     if (currentProtoId) {
-      // Update existing prototype
-      const updated = savedList.map((p) =>
+      // Update existing prototype in full list
+      const allProtos = getSavedPrototypes();
+      const updated = allProtos.map((p) =>
         p.id === currentProtoId
           ? { ...p, htmlCode: content, designPrompt, description: input, title: title.substring(0, 50) }
           : p
       );
-      setSavedList(updated);
       savePrototypes(updated);
+      // Refresh filtered display
+      setSavedList(currentProjectId
+        ? updated.filter((p) => p.projectId === currentProjectId)
+        : updated);
     } else {
       // Create new prototype
       const proto: SavedPrototype = {
@@ -214,18 +225,26 @@ export default function PrototypePage() {
         htmlCode: content,
         designPrompt,
         createdAt: new Date().toISOString(),
+        projectId: currentProjectId ?? undefined,
       };
-      const updated = [proto, ...savedList];
-      setSavedList(updated);
+      // Persist to full list
+      const allProtos = getSavedPrototypes();
+      const updated = [proto, ...allProtos];
       savePrototypes(updated);
+      // Refresh filtered display
+      setSavedList(currentProjectId
+        ? updated.filter((p) => p.projectId === currentProjectId)
+        : updated);
       setCurrentProtoId(proto.id);
     }
   };
 
   const handleDelete = (id: string) => {
-    const updated = savedList.filter((p) => p.id !== id);
-    setSavedList(updated);
-    savePrototypes(updated);
+    const allProtos = getSavedPrototypes().filter((p) => p.id !== id);
+    savePrototypes(allProtos);
+    setSavedList(currentProjectId
+      ? allProtos.filter((p) => p.projectId === currentProjectId)
+      : allProtos);
   };
 
   const handleOpen = (proto: SavedPrototype) => {

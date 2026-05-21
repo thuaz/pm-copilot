@@ -7,13 +7,14 @@ import { TERMS_BATCH_SYSTEM_PROMPT } from "@/lib/prompts/terms";
 import { getAllPRDs, createPRD, iteratePRD, type PRDDocument } from "@/lib/prd-store";
 import { exportPRD, type ExportFormat } from "@/lib/export";
 import { createMeeting } from "@/lib/meeting-store";
-import { getCurrentProjectId } from "@/lib/project-store";
+import { useProject } from "@/lib/project-context";
 import {
   Mic, MicOff, Upload, Loader2, Copy, Check, FileText, BookOpen,
   Sparkles, RefreshCw, AlertCircle, Edit3, CheckCircle, ChevronRight,
   Download, ChevronDown, Eye, Lightbulb, MessageSquare, Brain,
   Zap, ExternalLink, Pause, Play,
 } from "lucide-react";
+import { SummaryAnnotator, type Annotation } from "@/components/summary-annotator";
 import { MD } from "@/components/markdown";
 
 type Step = "record" | "transcribing" | "review" | "generating" | "done";
@@ -137,6 +138,7 @@ function getSpeechRecognition(): SpeechRecognitionConstructor | null {
 // ── Main component ──
 
 export default function RecordingPage() {
+  const { currentProjectId } = useProject();
   const [step, setStep] = useState<Step>("record");
   const [recording, setRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -152,7 +154,9 @@ export default function RecordingPage() {
   const [transcript, setTranscript] = useState("");
   const [terms, setTerms] = useState("");
   const [summary, setSummary] = useState("");
+  const [summaryOriginal, setSummaryOriginal] = useState("");
   const [summaryConfirmed, setSummaryConfirmed] = useState(false);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
 
   const [selectedPRD, setSelectedPRD] = useState("");
   const [generatedPRD, setGeneratedPRD] = useState("");
@@ -530,7 +534,9 @@ export default function RecordingPage() {
     setTranscript("");
     setTerms("");
     setSummary("");
+    setSummaryOriginal("");
     setSummaryConfirmed(false);
+    setAnnotations([]);
     setGeneratedPRD("");
     setPrdSaved(false);
     setError("");
@@ -558,14 +564,22 @@ export default function RecordingPage() {
         callAI(text, TERMS_BATCH_SYSTEM_PROMPT).catch(() => "术语分析失败"),
         (async () => {
           const stream = callAIStream(text, SUMMARY_PROMPT);
-          await readStream(stream, (acc) => setSummary(acc));
+          const reader = stream.getReader();
+          let acc = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            acc += value;
+            setSummary(acc);
+          }
+          // Save the AI-generated original for diff tracking
+          setSummaryOriginal(acc);
         })(),
       ]);
       setTerms(termsRes);
-      // Save to unified meeting store
       try {
         const title = summary.split("\n").find((l: string) => l.trim() && !l.startsWith("```"))?.replace(/^#+\s*/, "") || "录音会议";
-        createMeeting("recording", title, text, summary, getCurrentProjectId() ?? undefined);
+        createMeeting("recording", title, text, summary, currentProjectId ?? undefined);
       } catch { /* non-critical */ }
       setStep("review");
     } catch (e) {
@@ -670,7 +684,15 @@ export default function RecordingPage() {
         callAI(text, TERMS_BATCH_SYSTEM_PROMPT).catch(() => "术语分析失败"),
         (async () => {
           const stream = callAIStream(text, SUMMARY_PROMPT);
-          await readStream(stream, (acc) => setSummary(acc));
+          const reader = stream.getReader();
+          let acc = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            acc += value;
+            setSummary(acc);
+          }
+          setSummaryOriginal(acc);
         })(),
       ]);
       setTerms(termsRes);
@@ -703,7 +725,7 @@ export default function RecordingPage() {
       const title = finalPRD.split("\n").find((l) => l.trim() && !l.startsWith("```"))?.replace(/^#+\s*/, "") || "未命名 PRD";
       createPRD(title, finalPRD, "recording", currentSummary.substring(0, 100));
       // Also save to unified meeting store
-      try { createMeeting("recording", title, text, currentSummary, getCurrentProjectId() ?? undefined); } catch { /* non-critical */ }
+      try { createMeeting("recording", title, text, currentSummary, currentProjectId ?? undefined); } catch { /* non-critical */ }
       setPrdSaved(true);
 
       if (!mountedRef.current) return;
@@ -1133,7 +1155,7 @@ export default function RecordingPage() {
             </details>
           )}
 
-          {/* Editable Summary - THE KEY PART */}
+          {/* Editable Summary with Annotation Support - THE KEY PART */}
           <div className="rounded-xl border-2 border-[var(--color-primary)] bg-blue-50/30">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-primary)]/20 bg-blue-50">
               <div className="flex items-center gap-2">
@@ -1145,11 +1167,12 @@ export default function RecordingPage() {
               </button>
             </div>
             <div className="p-1">
-              <textarea
-                value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-                className="w-full min-h-[350px] p-3 text-sm bg-white/80 focus:bg-white focus:outline-none resize-y rounded-b-lg"
-                placeholder="AI 生成的会议总结会出现在这里，你可以自由修改..."
+              <SummaryAnnotator
+                summary={summary}
+                summaryOriginal={summaryOriginal}
+                onChangeSummary={setSummary}
+                annotations={annotations}
+                onAnnotationsChange={setAnnotations}
               />
             </div>
             <div className="px-4 py-3 bg-blue-50 border-t border-[var(--color-primary)]/10 rounded-b-xl">

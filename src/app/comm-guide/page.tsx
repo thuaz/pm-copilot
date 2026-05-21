@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useProject } from "@/lib/project-context";
 import {
   Search, Star, Trash2, MessageSquare, ChevronDown, ChevronRight,
   Copy, Check, BookOpen, MessageCircle, HelpCircle, Lightbulb,
@@ -25,6 +26,7 @@ interface CustomScript {
   tips?: string;
   createdAt: string;
   updatedAt: string;
+  projectId?: string;
 }
 
 interface FAQItem {
@@ -829,6 +831,7 @@ function saveCustomScripts(scripts: CustomScript[]) {
 // ── Component ──
 
 export default function CommGuidePage() {
+  const { currentProjectId } = useProject();
   const [perspective, setPerspective] = useState<Perspective>("partyA");
   const [activeCategory, setActiveCategory] = useState<Category>("opening");
   const [searchQuery, setSearchQuery] = useState("");
@@ -837,8 +840,16 @@ export default function CommGuidePage() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Custom scripts state
-  const [customScripts, setCustomScripts] = useState<CustomScript[]>(getCustomScripts);
+  // Custom scripts state — filter by current project
+  const [customScripts, setCustomScripts] = useState<CustomScript[]>([]);
+
+  useEffect(() => {
+    const all = getCustomScripts();
+    const filtered = currentProjectId
+      ? all.filter((s) => s.projectId === currentProjectId)
+      : all;
+    setCustomScripts(filtered);
+  }, [currentProjectId]);
   const [showScriptModal, setShowScriptModal] = useState(false);
   const [editingScript, setEditingScript] = useState<CustomScript | null>(null);
   const [modalForm, setModalForm] = useState({
@@ -859,8 +870,17 @@ export default function CommGuidePage() {
   }, [favorites]);
 
   useEffect(() => {
-    saveCustomScripts(customScripts);
-  }, [customScripts]);
+    // Only save if we have loaded scripts (skip initial empty state)
+    if (customScripts.length > 0 || currentProjectId !== undefined) {
+      // Merge filtered scripts back into the full list, replacing only the current project's scripts
+      const allScripts = getCustomScripts();
+      const otherScripts = currentProjectId
+        ? allScripts.filter((s) => s.projectId !== currentProjectId)
+        : [];
+      const merged = [...otherScripts, ...customScripts];
+      saveCustomScripts(merged);
+    }
+  }, [customScripts, currentProjectId]);
 
   // Get scripts/FAQs based on perspective
   const currentScripts = perspective === "partyA" ? SCRIPTS_PARTY_A : SCRIPTS_PARTY_B;
@@ -926,6 +946,7 @@ export default function CommGuidePage() {
         tips: modalForm.tips.trim() || undefined,
         createdAt: now,
         updatedAt: now,
+        projectId: currentProjectId ?? undefined,
       };
       setCustomScripts((prev) => [...prev, newScript]);
     }

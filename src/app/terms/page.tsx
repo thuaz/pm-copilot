@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { callAI, callAIStream } from "@/lib/ai";
 import { TERMS_SYSTEM_PROMPT, TERMS_BATCH_SYSTEM_PROMPT } from "@/lib/prompts/terms";
+import { useProject } from "@/lib/project-context";
 import { Search, FileText, Loader2, Copy, Check, Star, Trash2 } from "lucide-react";
 import { MD } from "@/components/markdown";
 
@@ -10,6 +11,7 @@ interface SavedTerm {
   term: string;
   explanation: string;
   savedAt: string;
+  projectId?: string;
 }
 
 function getSavedTerms(): SavedTerm[] {
@@ -26,14 +28,23 @@ function saveTermList(terms: SavedTerm[]) {
 }
 
 export default function TermsPage() {
+  const { currentProjectId } = useProject();
   const [mode, setMode] = useState<"single" | "batch">("single");
   const [input, setInput] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [savedTerms, setSavedTerms] = useState<SavedTerm[]>(getSavedTerms);
+  const [savedTerms, setSavedTerms] = useState<SavedTerm[]>([]);
   const [showSaved, setShowSaved] = useState(false);
+
+  useEffect(() => {
+    const all = getSavedTerms();
+    const filtered = currentProjectId
+      ? all.filter((t) => t.projectId === currentProjectId)
+      : all;
+    setSavedTerms(filtered);
+  }, [currentProjectId]);
 
   const handleSearch = async () => {
     if (!input.trim()) return;
@@ -71,16 +82,31 @@ export default function TermsPage() {
       term: input.trim().substring(0, 50),
       explanation: result.substring(0, 200),
       savedAt: new Date().toISOString(),
+      projectId: currentProjectId ?? undefined,
     };
-    const updated = [newTerm, ...savedTerms];
-    setSavedTerms(updated);
-    saveTermList(updated);
+    // Persist to full list (all projects)
+    const allTerms = getSavedTerms();
+    allTerms.unshift(newTerm);
+    saveTermList(allTerms);
+    // Refresh filtered display
+    setSavedTerms(currentProjectId
+      ? allTerms.filter((t) => t.projectId === currentProjectId)
+      : allTerms);
   };
 
   const handleDeleteSaved = (index: number) => {
-    const updated = savedTerms.filter((_, i) => i !== index);
-    setSavedTerms(updated);
-    saveTermList(updated);
+    // Find the term to delete from the filtered list
+    const termToDelete = savedTerms[index];
+    if (!termToDelete) return;
+    // Remove from full list by matching term + savedAt
+    const allTerms = getSavedTerms().filter(
+      (t) => !(t.term === termToDelete.term && t.savedAt === termToDelete.savedAt)
+    );
+    saveTermList(allTerms);
+    // Refresh filtered display
+    setSavedTerms(currentProjectId
+      ? allTerms.filter((t) => t.projectId === currentProjectId)
+      : allTerms);
   };
 
   const handleUseSaved = (term: SavedTerm) => {

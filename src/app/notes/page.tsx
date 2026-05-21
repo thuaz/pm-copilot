@@ -5,17 +5,20 @@ import { useRouter } from "next/navigation";
 import { callAIStream } from "@/lib/ai";
 import { createMeeting } from "@/lib/meeting-store";
 import { getCurrentProjectId } from "@/lib/project-store";
+import { useProject } from "@/lib/project-context";
 import {
   Loader2, Sparkles, FileText, Copy, Check, Clock, Trash2,
   ChevronDown, Save, Search,
 } from "lucide-react";
 import { MD } from "@/components/markdown";
+import { SummaryAnnotator, type Annotation } from "@/components/summary-annotator";
 
 interface SavedNote {
   id: string;
   input: string;
   result: string;
   savedAt: string;
+  projectId?: string;
 }
 
 function getSavedNotes(): SavedNote[] {
@@ -31,18 +34,25 @@ function saveNotesList(notes: SavedNote[]) {
 
 export default function NotesPage() {
   const router = useRouter();
+  const { currentProjectId } = useProject();
   const [input, setInput] = useState("");
   const [result, setResult] = useState("");
+  const [resultOriginal, setResultOriginal] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [savedNotes, setSavedNotes] = useState<SavedNote[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
 
   useEffect(() => {
-    setSavedNotes(getSavedNotes());
-  }, []);
+    const all = getSavedNotes();
+    const filtered = currentProjectId
+      ? all.filter((n) => n.projectId === currentProjectId)
+      : all;
+    setSavedNotes(filtered);
+  }, [currentProjectId]);
 
   const handleAnalyze = async () => {
     if (!input.trim()) return;
@@ -70,6 +80,9 @@ export default function NotesPage() {
         acc += value;
         setResult(acc);
       }
+      // Save the AI-generated original for diff tracking
+      setResultOriginal(acc);
+      setAnnotations([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "分析失败");
     } finally {
@@ -90,26 +103,38 @@ export default function NotesPage() {
       input: input.substring(0, 500),
       result,
       savedAt: new Date().toISOString(),
+      projectId: currentProjectId ?? undefined,
     };
-    const updated = [note, ...savedNotes];
-    setSavedNotes(updated);
-    saveNotesList(updated);
+    // Persist to full list (all projects) in localStorage
+    const allNotes = getSavedNotes();
+    allNotes.unshift(note);
+    saveNotesList(allNotes);
+    // Update displayed list (filtered by current project)
+    setSavedNotes(currentProjectId
+      ? allNotes.filter((n) => n.projectId === currentProjectId)
+      : allNotes);
     // Also save to unified meeting store
     try {
       const title = input.substring(0, 60).split("\n")[0] || "会议记录";
-      createMeeting("notes", title, input, result, getCurrentProjectId() ?? undefined);
+      createMeeting("notes", title, input, result, currentProjectId ?? undefined);
     } catch { /* non-critical */ }
   };
 
   const handleDeleteNote = (id: string) => {
-    const updated = savedNotes.filter((n) => n.id !== id);
-    setSavedNotes(updated);
-    saveNotesList(updated);
+    // Remove from full list
+    const allNotes = getSavedNotes().filter((n) => n.id !== id);
+    saveNotesList(allNotes);
+    // Update displayed list
+    setSavedNotes(currentProjectId
+      ? allNotes.filter((n) => n.projectId === currentProjectId)
+      : allNotes);
   };
 
   const handleOpenNote = (note: SavedNote) => {
     setInput(note.input);
     setResult(note.result);
+    setResultOriginal(note.result);
+    setAnnotations([]);
     setShowHistory(false);
   };
 
@@ -148,7 +173,7 @@ export default function NotesPage() {
           }`}
         >
           <Clock className="w-3.5 h-3.5" />
-          历史记录 ({savedNotes.length})
+          历史记录 ({savedNotes.length}){currentProjectId ? "" : " (全部)"}
         </button>
       </div>
 
@@ -256,9 +281,17 @@ export default function NotesPage() {
                       </button>
                     </div>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-4 prose prose-sm max-w-none">
-                    <MD>{result}</MD>
-                    {loading && <span className="inline-block w-2 h-4 bg-[var(--color-primary)] animate-pulse ml-0.5 align-text-bottom" />}
+                  <div className="flex-1 overflow-y-auto p-3">
+                    <SummaryAnnotator
+                      summary={result}
+                      summaryOriginal={resultOriginal}
+                      onChangeSummary={setResult}
+                      annotations={annotations}
+                      onAnnotationsChange={setAnnotations}
+                    />
+                    {loading && (
+                      <span className="inline-block w-2 h-4 bg-[var(--color-primary)] animate-pulse ml-0.5 align-text-bottom" />
+                    )}
                   </div>
                   <div className="px-4 py-2.5 border-t border-[var(--color-border)]">
                     <button

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getAllMeetings, deleteMeeting, type Meeting } from "@/lib/meeting-store";
-import { getCurrentProjectId } from "@/lib/project-store";
+import { useProject } from "@/lib/project-context";
 import {
   Mic, StickyNote, Trash2, Search, Filter, CalendarDays,
   FileText, ArrowRight, Clock,
@@ -14,15 +14,15 @@ type FilterType = "all" | "recording" | "notes";
 
 export default function MeetingsPage() {
   const router = useRouter();
+  const { currentProjectId } = useProject();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [filter, setFilter] = useState<FilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    const projectId = getCurrentProjectId();
-    setMeetings(getAllMeetings(projectId));
-  }, []);
+    setMeetings(getAllMeetings(currentProjectId));
+  }, [currentProjectId]);
 
   const filtered = meetings.filter((m) => {
     if (filter !== "all" && m.type !== filter) return false;

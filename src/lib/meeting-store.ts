@@ -1,9 +1,18 @@
+export interface Annotation {
+  id: string;
+  selectedText: string;
+  comment: string;
+  createdAt: string;
+}
+
 export interface Meeting {
   id: string;
   type: "recording" | "notes";
   title: string;
   content: string;          // transcript (recording) or pasted text (notes)
-  summary: string;          // AI analysis result
+  summary: string;          // AI analysis result (current, possibly edited)
+  summaryOriginal?: string; // AI original output before user edits
+  annotations?: Annotation[];
   createdAt: string;
   projectId?: string;
   audioUrl?: string;        // blob URL — transient, may be stale
@@ -52,7 +61,7 @@ export function createMeeting(
 
 export function updateMeeting(
   id: string,
-  updates: Partial<Pick<Meeting, "title" | "content" | "summary" | "projectId">>,
+  updates: Partial<Pick<Meeting, "title" | "content" | "summary" | "summaryOriginal" | "annotations" | "projectId">>,
 ): Meeting | null {
   const meetings = getAllMeetings();
   const idx = meetings.findIndex((m) => m.id === id);
