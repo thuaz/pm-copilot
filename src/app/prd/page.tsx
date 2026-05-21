@@ -25,6 +25,7 @@ import {
   Eye,
   RotateCcw,
   X,
+  BookOpen,
 } from "lucide-react";
 import { MD } from "@/components/markdown";
 
@@ -51,17 +52,45 @@ export default function PRDPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [viewingVersion, setViewingVersion] = useState<PRDHistoryEntry | null>(null);
   const [restoringVersion, setRestoringVersion] = useState(false);
+  // Terms Reference Panel
+  const [showTermsPanel, setShowTermsPanel] = useState(false);
+  const [termsList, setTermsList] = useState<{ term: string; explanation: string }[]>([]);
 
   useEffect(() => {
     setPrds(getAllPRDs(currentProjectId));
     const draft = localStorage.getItem("prd-draft");
     if (draft) {
       localStorage.removeItem("prd-draft");
-      setChatInput(`请根据以下会议分析结果生成 PRD：\n\n${draft}`);
+      // Try structured payload first; fall back to plain string for backward compat
+      let contextText = "";
+      try {
+        const parsed = JSON.parse(draft);
+        if (parsed.summary) {
+          contextText = "请根据以下会议分析结果生成 PRD：\n\n";
+          if (parsed.originalText) {
+            contextText += `## 原始会议记录\n${parsed.originalText}\n\n`;
+          }
+          contextText += `## AI 分析结果\n${parsed.summary}`;
+        } else {
+          contextText = draft;
+        }
+      } catch {
+        contextText = `请根据以下会议分析结果生成 PRD：\n\n${draft}`;
+      }
+      setChatInput(contextText);
       setView("chat");
       setChatHistory([]);
     }
   }, [currentProjectId]);
+
+  const toggleTermsPanel = () => {
+    if (!showTermsPanel) {
+      try {
+        setTermsList(JSON.parse(localStorage.getItem("saved-terms") || "[]"));
+      } catch { setTermsList([]); }
+    }
+    setShowTermsPanel(!showTermsPanel);
+  };
 
   const refreshList = () => setPrds(getAllPRDs(currentProjectId));
 
@@ -687,6 +716,76 @@ export default function PRDPage() {
       </div>
 
       {error && <div className="mt-4 p-3 rounded-lg bg-red-50 text-red-600 text-sm">{error}</div>}
+
+      {/* Floating Terms Reference Button */}
+      <button
+        onClick={toggleTermsPanel}
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-1.5 px-3 py-2 rounded-full shadow-lg bg-white border border-[var(--color-border)] text-sm hover:shadow-xl transition-shadow"
+        title="查看已收藏的术语"
+      >
+        <BookOpen className="w-4 h-4 text-[var(--color-primary)]" />
+        <span>术语参考</span>
+        {termsList.length > 0 && (
+          <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-[var(--color-accent)] text-[var(--color-primary)] text-xs font-medium">
+            {termsList.length}
+          </span>
+        )}
+      </button>
+
+      {/* Terms Reference Side Panel */}
+      {showTermsPanel && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div
+            className="absolute inset-0 bg-black/20"
+            onClick={() => setShowTermsPanel(false)}
+          />
+          <div className="relative w-full max-w-sm bg-white shadow-xl flex flex-col h-full overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
+              <h3 className="text-sm font-semibold flex items-center gap-1.5">
+                <BookOpen className="w-4 h-4" /> 已收藏术语
+              </h3>
+              <button
+                onClick={() => setShowTermsPanel(false)}
+                className="p-1 rounded hover:bg-gray-100 text-gray-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {termsList.length === 0 ? (
+                <div className="px-4 py-8 text-center">
+                  <BookOpen className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                  <p className="text-xs text-[var(--color-muted-foreground)]">
+                    还没有收藏的术语
+                  </p>
+                  <p className="text-xs text-[var(--color-muted-foreground)] mt-0.5">
+                    在「术语助手」中查询后点击收藏
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {termsList.map((item, i) => (
+                    <div key={i} className="px-4 py-3 hover:bg-gray-50/80 transition-colors">
+                      <div className="text-sm font-medium">{item.term}</div>
+                      <div className="text-xs text-[var(--color-muted-foreground)] mt-1 line-clamp-3">
+                        {item.explanation}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setChatInput((prev) => (prev ? prev + "\n" : "") + `参考术语：${item.term} - ${item.explanation}`);
+                        }}
+                        className="mt-1.5 text-xs text-[var(--color-primary)] hover:underline"
+                      >
+                        插入到对话
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

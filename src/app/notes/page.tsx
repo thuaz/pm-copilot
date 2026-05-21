@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { callAIStream } from "@/lib/ai";
+import { createMeeting } from "@/lib/meeting-store";
+import { getCurrentProjectId } from "@/lib/project-store";
 import {
   Loader2, Sparkles, FileText, Copy, Check, Clock, Trash2,
   ChevronDown, Save, Search,
@@ -92,6 +94,11 @@ export default function NotesPage() {
     const updated = [note, ...savedNotes];
     setSavedNotes(updated);
     saveNotesList(updated);
+    // Also save to unified meeting store
+    try {
+      const title = input.substring(0, 60).split("\n")[0] || "会议记录";
+      createMeeting("notes", title, input, result, getCurrentProjectId() ?? undefined);
+    } catch { /* non-critical */ }
   };
 
   const handleDeleteNote = (id: string) => {
@@ -108,7 +115,12 @@ export default function NotesPage() {
 
   const handleToPRD = () => {
     if (!result) return;
-    localStorage.setItem("prd-draft", result);
+    const payload = JSON.stringify({
+      summary: result,
+      originalText: input,
+      source: "meeting-analysis",
+    });
+    localStorage.setItem("prd-draft", payload);
     router.push("/prd");
   };
 

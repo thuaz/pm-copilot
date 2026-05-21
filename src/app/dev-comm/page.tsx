@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { callAIStream } from "@/lib/ai";
-import { Loader2, ArrowRightLeft, MessageSquare, BookOpen, Copy, Check } from "lucide-react";
+import { Loader2, ArrowRightLeft, MessageSquare, BookOpen, Copy, Check, ClipboardList, X } from "lucide-react";
 import { MD } from "@/components/markdown";
 
 type DevMode = "translate" | "explain" | "template";
@@ -14,6 +14,8 @@ export default function DevCommPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [showNotesImport, setShowNotesImport] = useState(false);
+  const [meetingNotes, setMeetingNotes] = useState<{ id: string; input: string; result: string; savedAt: string }[]>([]);
 
   const handleRun = async () => {
     if (!input.trim()) return;
@@ -85,6 +87,21 @@ export default function DevCommPage() {
     navigator.clipboard.writeText(result);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const toggleNotesImport = () => {
+    if (!showNotesImport) {
+      try {
+        setMeetingNotes(JSON.parse(localStorage.getItem("saved-notes") || "[]"));
+      } catch { setMeetingNotes([]); }
+    }
+    setShowNotesImport(!showNotesImport);
+  };
+
+  const handleImportNote = (note: { input: string; result: string }) => {
+    const summary = note.result || note.input;
+    setInput((prev) => (prev ? prev + "\n\n" : "") + `[会议记录参考]\n${summary}`);
+    setShowNotesImport(false);
   };
 
   const modes: { key: DevMode; label: string; icon: typeof ArrowRightLeft; desc: string }[] = [
@@ -161,23 +178,77 @@ export default function DevCommPage() {
           rows={4}
           className="w-full px-4 py-3 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:border-[var(--color-primary)] resize-y"
         />
-        <button
-          onClick={handleRun}
-          disabled={loading || !input.trim()}
-          className="mt-2 px-4 py-2.5 rounded-lg bg-[var(--color-primary)] text-white text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
-        >
-          {loading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <ArrowRightLeft className="w-4 h-4" />
-          )}
-          {mode === "translate"
-            ? "翻译"
-            : mode === "explain"
-            ? "解释"
-            : "生成"}
-        </button>
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            onClick={handleRun}
+            disabled={loading || !input.trim()}
+            className="px-4 py-2.5 rounded-lg bg-[var(--color-primary)] text-white text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {loading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <ArrowRightLeft className="w-4 h-4" />
+            )}
+            {mode === "translate"
+              ? "翻译"
+              : mode === "explain"
+              ? "解释"
+              : "生成"}
+          </button>
+          <button
+            onClick={toggleNotesImport}
+            className={`flex items-center gap-1.5 px-3 py-2.5 rounded-lg border text-sm transition-colors ${
+              showNotesImport
+                ? "border-[var(--color-primary)] bg-[var(--color-accent)] text-[var(--color-primary)]"
+                : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-gray-50"
+            }`}
+          >
+            <ClipboardList className="w-4 h-4" />
+            导入会议内容
+          </button>
+        </div>
       </div>
+
+      {/* Meeting Notes Import Panel */}
+      {showNotesImport && (
+        <div className="mb-4 rounded-xl border border-[var(--color-border)]">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)]">
+            <span className="text-sm font-medium">选择会议记录</span>
+            <button
+              onClick={() => setShowNotesImport(false)}
+              className="p-1 rounded hover:bg-gray-100 text-gray-400"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {meetingNotes.length === 0 ? (
+            <div className="py-6 text-center">
+              <ClipboardList className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+              <p className="text-xs text-[var(--color-muted-foreground)]">
+                还没有保存的会议记录
+              </p>
+              <p className="text-xs text-[var(--color-muted-foreground)] mt-0.5">
+                在「会议记录助手」中分析并保存后可在此导入
+              </p>
+            </div>
+          ) : (
+            <div className="max-h-[250px] overflow-y-auto divide-y divide-gray-100">
+              {meetingNotes.map((note) => (
+                <div
+                  key={note.id}
+                  className="px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                  onClick={() => handleImportNote(note)}
+                >
+                  <div className="text-sm line-clamp-2">{note.input.substring(0, 100)}</div>
+                  <div className="text-xs text-[var(--color-muted-foreground)] mt-1">
+                    {new Date(note.savedAt).toLocaleString("zh-CN")}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-600 text-sm">

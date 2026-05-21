@@ -6,14 +6,19 @@ import { transcribeAudio } from "@/lib/whisper";
 import { TERMS_BATCH_SYSTEM_PROMPT } from "@/lib/prompts/terms";
 import { getAllPRDs, createPRD, iteratePRD, type PRDDocument } from "@/lib/prd-store";
 import { exportPRD, type ExportFormat } from "@/lib/export";
+import { createMeeting } from "@/lib/meeting-store";
+import { getCurrentProjectId } from "@/lib/project-store";
 import {
   Mic, MicOff, Upload, Loader2, Copy, Check, FileText, BookOpen,
   Sparkles, RefreshCw, AlertCircle, Edit3, CheckCircle, ChevronRight,
   Download, ChevronDown, Eye, Lightbulb, MessageSquare, Brain,
+  Zap, ExternalLink,
 } from "lucide-react";
 import { MD } from "@/components/markdown";
 
 type Step = "record" | "transcribing" | "review" | "generating" | "done";
+
+type QuickModeStage = "idle" | "transcribing" | "analyzing" | "generating" | "saving" | "done";
 
 const SUMMARY_PROMPT = `你是一位 ToB 产品经理助手。分析以下会议录音的文字记录，生成一份结构化的会议总结。
 
@@ -135,6 +140,11 @@ export default function RecordingPage() {
   const [step, setStep] = useState<Step>("record");
   const [recording, setRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+
+  // Quick mode state
+  const [quickMode, setQuickMode] = useState(false);
+  const [quickModeStage, setQuickModeStage] = useState<QuickModeStage>("idle");
+  const [quickModeError, setQuickModeError] = useState("");
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
 
@@ -155,6 +165,10 @@ export default function RecordingPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef<boolean>(true);
   const stepDoneGuardRef = useRef<boolean>(false);
+  const summaryRef = useRef<string>("");
+
+  // Keep summaryRef in sync so runQuickMode can read the latest value
+  useEffect(() => { summaryRef.current = summary; }, [summary]);
 
   // Real-time transcription state
   const [realtimeSegments, setRealtimeSegments] = useState<TranscriptSegment[]>([]);
@@ -416,23 +430,51 @@ export default function RecordingPage() {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && recording) {
-      mediaRecorderRef.current.stop();
+      const mr = mediaRecorderRef.current;
+      const wasQuickMode = quickMode;
+
+      // Capture the blob before stopping
+      const pendingBlob = new Blob(chunksRef.current, { type: mr.mimeType });
+
+      mr.stop();
       setRecording(false);
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
       stopSpeechRecognition();
+
+      // If quick mode is ON, auto-start the pipeline
+      if (wasQuickMode && pendingBlob.size > 0) {
+        setAudioBlob(pendingBlob);
+        // Use setTimeout to ensure state has settled after mr.stop() callbacks
+        setTimeout(() => {
+          if (mountedRef.current) {
+            runQuickMode(pendingBlob);
+          }
+        }, 100);
+      }
     }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setAudioBlob(new Blob([file], { type: file.type }));
-    if (audioUrl) URL.revokeObjectURL(audioUrl);
-    setAudioUrl(URL.createObjectURL(new Blob([file], { type: file.type })));
+    const blob = new Blob([file], { type: file.type });
+    const url = URL.createObjectURL(blob);
+    // Reset state but preserve quickMode and the new audio
     resetState();
+    setAudioBlob(blob);
+    setAudioUrl(url);
+
+    // Auto-start quick mode for uploaded files too
+    if (quickMode) {
+      setTimeout(() => {
+        if (mountedRef.current) {
+          runQuickMode(blob);
+        }
+      }, 100);
+    }
   };
 
   const resetState = () => {
@@ -445,6 +487,8 @@ export default function RecordingPage() {
     setError("");
     setStep("record");
     setSelectedPRD("");
+    setQuickModeStage("idle");
+    setQuickModeError("");
   };
 
   const handleTranscribe = async () => {
@@ -469,6 +513,11 @@ export default function RecordingPage() {
         })(),
       ]);
       setTerms(termsRes);
+      // Save to unified meeting store
+      try {
+        const title = summary.split("\n").find((l: string) => l.trim() && !l.startsWith("```"))?.replace(/^#+\s*/, "") || "录音会议";
+        createMeeting("recording", title, text, summary, getCurrentProjectId() ?? undefined);
+      } catch { /* non-critical */ }
       setStep("review");
     } catch (e) {
       setError(e instanceof Error ? e.message : "转写失败");
@@ -548,6 +597,86 @@ export default function RecordingPage() {
     setTimeout(() => setPrdSaved(false), 3000);
   };
 
+  // ── Quick mode: auto transcribe → generate → save ──
+
+  const runQuickMode = useCallback(async (blob: Blob) => {
+    setQuickModeStage("transcribing");
+    setQuickModeError("");
+    setStep("transcribing");
+    setError("");
+
+    try {
+      // Stage 1: Transcribe
+      const text = await transcribeAudio(blob);
+      if (!text.trim()) {
+        throw new Error("未能识别到语音内容，请确认录音是否清晰");
+      }
+      setTranscript(text);
+
+      if (!mountedRef.current) return;
+
+      // Stage 2: Analyze (terms + summary)
+      setQuickModeStage("analyzing");
+      const [termsRes] = await Promise.all([
+        callAI(text, TERMS_BATCH_SYSTEM_PROMPT).catch(() => "术语分析失败"),
+        (async () => {
+          const stream = callAIStream(text, SUMMARY_PROMPT);
+          await readStream(stream, (acc) => setSummary(acc));
+        })(),
+      ]);
+      setTerms(termsRes);
+
+      if (!mountedRef.current) return;
+
+      // Stage 3: Generate PRD
+      setQuickModeStage("generating");
+      setStep("generating");
+      setGeneratedPRD("");
+      stepDoneGuardRef.current = false;
+
+      const currentSummary = summaryRef.current;
+      const stream = callAIStream(
+        `以下是用户确认过的会议总结，请据此生成 PRD：\n\n${currentSummary}\n\n原始对话记录（供参考）：\n${text}`,
+        PRD_SYSTEM_PROMPT
+      );
+      let finalPRD = "";
+      await readStream(stream, (acc) => {
+        finalPRD = acc;
+        if (mountedRef.current) {
+          setGeneratedPRD(acc);
+        }
+      });
+
+      if (!mountedRef.current) return;
+
+      // Stage 4: Auto-save
+      setQuickModeStage("saving");
+      const title = finalPRD.split("\n").find((l) => l.trim() && !l.startsWith("```"))?.replace(/^#+\s*/, "") || "未命名 PRD";
+      createPRD(title, finalPRD, "recording", currentSummary.substring(0, 100));
+      // Also save to unified meeting store
+      try { createMeeting("recording", title, text, currentSummary, getCurrentProjectId() ?? undefined); } catch { /* non-critical */ }
+      setPrdSaved(true);
+
+      if (!mountedRef.current) return;
+
+      // Done
+      setQuickModeStage("done");
+      if (!stepDoneGuardRef.current) {
+        stepDoneGuardRef.current = true;
+        setStep("done");
+      }
+    } catch (e) {
+      if (mountedRef.current) {
+        const msg = e instanceof Error ? e.message : "快速模式失败";
+        setQuickModeError(msg);
+        setError(msg);
+        // Fall back to manual flow at the appropriate step
+        setStep("record");
+        setQuickModeStage("idle");
+      }
+    }
+  }, []);
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -563,7 +692,10 @@ export default function RecordingPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold">录音分析</h1>
         <p className="text-[var(--color-muted-foreground)] mt-1">
-          开会录音 → 转文字 → 审核/修改总结 → 生成 PRD
+          {quickMode
+            ? "快速模式：开会录音 → 停止录音 → 自动生成并保存 PRD"
+            : "开会录音 → 转文字 → 审核/修改总结 → 生成 PRD"
+          }
         </p>
       </div>
 
@@ -572,6 +704,33 @@ export default function RecordingPage() {
         {/* Left: recording controls */}
         <div className={`${showRealtimePanel && recording ? "flex-1 min-w-0" : "w-full"}`}>
           <div className="rounded-xl border border-[var(--color-border)] p-6 mb-6">
+            {/* Quick mode toggle — only visible at record step */}
+            {step === "record" && (
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-[var(--color-border)]">
+                <div className="flex items-center gap-2">
+                  <Zap className={`w-4 h-4 ${quickMode ? "text-amber-500" : "text-gray-400"}`} />
+                  <span className="text-sm font-medium">快速模式</span>
+                  <span className="text-xs text-[var(--color-muted-foreground)]">
+                    — 停止录音后自动转写、生成并保存 PRD
+                  </span>
+                </div>
+                <button
+                  onClick={() => setQuickMode(!quickMode)}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    quickMode ? "bg-amber-500" : "bg-gray-300"
+                  }`}
+                  role="switch"
+                  aria-checked={quickMode}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                      quickMode ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center gap-6">
               <button
                 onClick={recording ? stopRecording : startRecording}
@@ -589,6 +748,11 @@ export default function RecordingPage() {
                     {speechSupported && (
                       <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
                         <Eye className="w-3 h-3" /> 实时语音识别已启动
+                      </p>
+                    )}
+                    {quickMode && (
+                      <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                        <Zap className="w-3 h-3" /> 快速模式已开启 — 停止后自动生成 PRD
                       </p>
                     )}
                   </div>
@@ -736,6 +900,71 @@ export default function RecordingPage() {
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-600 text-sm flex items-start gap-2">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" /> {error}
+        </div>
+      )}
+
+      {/* ===== Quick mode progress bar ===== */}
+      {quickModeStage !== "idle" && quickModeStage !== "done" && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Zap className="w-5 h-5 text-amber-500" />
+            <span className="text-sm font-medium text-amber-800">快速模式进行中</span>
+          </div>
+          {/* Progress stages */}
+          <div className="flex items-center gap-1">
+            {(["transcribing", "analyzing", "generating", "saving"] as const).map((stage, i) => {
+              const stageLabels: Record<string, string> = {
+                transcribing: "转写中",
+                analyzing: "分析中",
+                generating: "生成 PRD 中",
+                saving: "保存中",
+              };
+              const stageOrder = ["transcribing", "analyzing", "generating", "saving"];
+              const currentIdx = stageOrder.indexOf(quickModeStage);
+              const thisIdx = i;
+              const isComplete = thisIdx < currentIdx;
+              const isCurrent = thisIdx === currentIdx;
+
+              return (
+                <div key={stage} className="flex-1 flex items-center gap-1">
+                  <div className="flex-1">
+                    <div className={`h-2 rounded-full transition-all ${
+                      isComplete ? "bg-green-500" : isCurrent ? "bg-amber-500" : "bg-gray-200"
+                    }`} />
+                  </div>
+                  <span className={`text-xs whitespace-nowrap ${
+                    isComplete ? "text-green-600" : isCurrent ? "text-amber-700 font-medium" : "text-gray-400"
+                  }`}>
+                    {isComplete && <CheckCircle className="w-3 h-3 inline mr-0.5" />}
+                    {isCurrent && <Loader2 className="w-3 h-3 inline mr-0.5 animate-spin" />}
+                    {stageLabels[stage]}
+                  </span>
+                  {i < 3 && <ChevronRight className="w-3 h-3 text-gray-300 shrink-0" />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ===== Quick mode success banner ===== */}
+      {quickModeStage === "done" && (
+        <div className="mb-6 rounded-xl border border-green-300 bg-green-50 p-5">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-8 h-8 text-green-500 shrink-0" />
+            <div className="flex-1">
+              <p className="text-base font-medium text-green-800">PRD 已自动保存</p>
+              <p className="text-sm text-green-600 mt-0.5">
+                快速模式已完成所有步骤，你可以随时查看和编辑生成的 PRD
+              </p>
+            </div>
+            <a
+              href="/prd"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors"
+            >
+              查看 PRD <ExternalLink className="w-4 h-4" />
+            </a>
+          </div>
         </div>
       )}
 
@@ -927,13 +1156,23 @@ export default function RecordingPage() {
       {/* Tips */}
       {step === "record" && !audioBlob && (
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
-          <p className="font-medium mb-1">使用流程</p>
-          <ol className="space-y-1 text-xs list-decimal list-inside">
-            <li><strong>开会时录音</strong>（点红色按钮或上传手机录音）</li>
-            <li>AI 自动<strong>转文字并生成总结</strong>（包含甲方需求）</li>
-            <li>你<strong>审核/修改</strong>总结（改错、补漏、删错）</li>
-            <li>确认后<strong>一键生成 PRD</strong>（或迭代已有 PRD）</li>
-          </ol>
+          <p className="font-medium mb-1">
+            {quickMode ? "快速模式流程" : "使用流程"}
+          </p>
+          {quickMode ? (
+            <ol className="space-y-1 text-xs list-decimal list-inside">
+              <li><strong>开会时录音</strong>（点红色按钮或上传手机录音）</li>
+              <li>点击停止 → AI 自动<strong>转写、分析、生成 PRD 并保存</strong></li>
+              <li>完成后可直接<strong>查看 PRD</strong>，随时修改</li>
+            </ol>
+          ) : (
+            <ol className="space-y-1 text-xs list-decimal list-inside">
+              <li><strong>开会时录音</strong>（点红色按钮或上传手机录音）</li>
+              <li>AI 自动<strong>转文字并生成总结</strong>（包含甲方需求）</li>
+              <li>你<strong>审核/修改</strong>总结（改错、补漏、删错）</li>
+              <li>确认后<strong>一键生成 PRD</strong>（或迭代已有 PRD）</li>
+            </ol>
+          )}
           {speechSupported && (
             <p className="mt-2 text-xs">
               <strong>实时辅助：</strong>录音时右侧会显示实时语音识别和 AI 提示，帮助你在会议中更好地应对甲方。仅支持 Chrome 浏览器。

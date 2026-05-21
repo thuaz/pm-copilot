@@ -21,17 +21,20 @@ import {
   Check,
   Pencil,
   Trash2,
+  CalendarDays,
 } from "lucide-react";
 import { useProject } from "@/lib/project-context";
 
 const navItems = [
   { href: "/", label: "工作台", icon: LayoutDashboard },
-  { href: "/recording", label: "录音分析", icon: Mic },
+  // Meeting group — both record and notes share the same unified history
+  { href: "/recording", label: "录音分析", icon: Mic, group: "meeting" as const },
+  { href: "/notes", label: "会议记录", icon: StickyNote, group: "meeting" as const },
+  { href: "/meetings", label: "会议历史", icon: CalendarDays, group: "meeting" as const },
   { href: "/comm-guide", label: "沟通教练", icon: MessageCircleHeart },
   { href: "/terms", label: "医学术语", icon: BookOpen },
   { href: "/prd", label: "PRD 生成", icon: FileText },
   { href: "/prototype", label: "原型生成", icon: Monitor },
-  { href: "/notes", label: "会议记录", icon: StickyNote },
   { href: "/dev-comm", label: "开发沟通", icon: ArrowRightLeft },
 ];
 
@@ -286,23 +289,32 @@ export function Sidebar() {
 
   const NavLinks = () => (
     <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
-      {navItems.map((item) => {
+      {navItems.map((item, idx) => {
         const Icon = item.icon;
         const isActive =
           item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+        const prevItem = idx > 0 ? navItems[idx - 1] : null;
+        // Insert a section label before the meeting group
+        const showGroupLabel = item.group === "meeting" && (!prevItem || prevItem.group !== "meeting");
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-              isActive
-                ? "bg-[var(--color-accent)] text-[var(--color-sidebar-active)] font-medium"
-                : "text-[var(--color-sidebar-foreground)] hover:bg-gray-100"
-            }`}
-          >
-            <Icon className="w-[18px] h-[18px] shrink-0" />
-            {item.label}
-          </Link>
+          <div key={item.href}>
+            {showGroupLabel && (
+              <p className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+                会议
+              </p>
+            )}
+            <Link
+              href={item.href}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                isActive
+                  ? "bg-[var(--color-accent)] text-[var(--color-sidebar-active)] font-medium"
+                  : "text-[var(--color-sidebar-foreground)] hover:bg-gray-100"
+              }`}
+            >
+              <Icon className="w-[18px] h-[18px] shrink-0" />
+              {item.label}
+            </Link>
+          </div>
         );
       })}
       <div className="border-t border-[var(--color-border)] my-2" />
