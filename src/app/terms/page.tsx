@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { callAI, callAIStream } from "@/lib/ai";
 import { TERMS_SYSTEM_PROMPT, TERMS_BATCH_SYSTEM_PROMPT } from "@/lib/prompts/terms";
 import { useProject } from "@/lib/project-context";
-import { Search, FileText, Loader2, Copy, Check, Star, Trash2 } from "lucide-react";
+import { Search, FileText, Loader2, Copy, Check, Star, Trash2, Upload, Lightbulb } from "lucide-react";
 import { MD } from "@/components/markdown";
 
 interface SavedTerm {
@@ -37,6 +37,8 @@ export default function TermsPage() {
   const [copied, setCopied] = useState(false);
   const [savedTerms, setSavedTerms] = useState<SavedTerm[]>([]);
   const [showSaved, setShowSaved] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     const all = getSavedTerms();
@@ -115,6 +117,63 @@ export default function TermsPage() {
     setShowSaved(false);
   };
 
+  const handleImportTerms = () => {
+    if (!importText.trim()) return;
+    const lines = importText.trim().split("\n");
+    let count = 0;
+    const allTerms = getSavedTerms();
+    for (const line of lines) {
+      const parts = line.split(/[,\t，]/);
+      if (parts.length >= 2) {
+        const term = parts[0].trim();
+        const explanation = parts.slice(1).join(",").trim();
+        if (term && explanation) {
+          // Don't duplicate
+          if (!allTerms.some((t) => t.term === term)) {
+            allTerms.unshift({
+              term,
+              explanation: explanation.substring(0, 200),
+              savedAt: new Date().toISOString(),
+              projectId: currentProjectId ?? undefined,
+            });
+            count++;
+          }
+        }
+      } else if (parts[0].trim()) {
+        // Just a term name, save with placeholder
+        const term = parts[0].trim();
+        if (!allTerms.some((t) => t.term === term)) {
+          allTerms.unshift({
+            term,
+            explanation: "(待查询)",
+            savedAt: new Date().toISOString(),
+            projectId: currentProjectId ?? undefined,
+          });
+          count++;
+        }
+      }
+    }
+    saveTermList(allTerms);
+    setSavedTerms(currentProjectId
+      ? allTerms.filter((t) => t.projectId === currentProjectId)
+      : allTerms);
+    setImportText("");
+    setShowImport(false);
+    setShowSaved(true);
+    alert(`成功导入 ${count} 个术语`);
+  };
+
+  // Auto-highlight known terms in input
+  const getKnownTermHints = (text: string): string[] => {
+    if (!text.trim()) return [];
+    const allTerms = getSavedTerms();
+    return allTerms
+      .filter((t) => text.toLowerCase().includes(t.term.toLowerCase()))
+      .map((t) => t.term);
+  };
+
+  const knownHints = mode === "batch" ? getKnownTermHints(input) : [];
+
   return (
     <div>
       <div className="mb-6">
@@ -150,7 +209,7 @@ export default function TermsPage() {
         </button>
         <button
           onClick={() => setShowSaved(!showSaved)}
-          className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
             showSaved
               ? "bg-[var(--color-accent)] text-[var(--color-primary)]"
               : "text-[var(--color-muted-foreground)] hover:bg-gray-50"
@@ -159,7 +218,61 @@ export default function TermsPage() {
           <Star className="w-3.5 h-3.5" />
           收藏夹 ({savedTerms.length})
         </button>
+        <button
+          onClick={() => setShowImport(!showImport)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-[var(--color-muted-foreground)] hover:bg-gray-50"
+        >
+          <Upload className="w-3.5 h-3.5" />
+          导入
+        </button>
       </div>
+
+      {showImport && (
+        <div className="rounded-xl border border-[var(--color-border)] p-4 mb-4">
+          <h3 className="text-sm font-medium mb-2">批量导入术语</h3>
+          <p className="text-xs text-[var(--color-muted-foreground)] mb-2">
+            每行一个术语，格式：术语名,解释（或仅术语名）。也支持从 Excel 复制粘贴。
+          </p>
+          <textarea
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder={"HIS,Hospital Information System 医院信息系统\nEMR,Electronic Medical Record 电子病历\nPACS\nLIS"}
+            rows={5}
+            className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:border-[var(--color-primary)] resize-y mb-2"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleImportTerms}
+              disabled={!importText.trim()}
+              className="px-3 py-2 rounded-lg bg-[var(--color-primary)] text-white text-sm hover:bg-blue-700 disabled:opacity-40"
+            >
+              导入
+            </button>
+            <button
+              onClick={() => { setShowImport(false); setImportText(""); }}
+              className="px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm hover:bg-gray-50"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Known term hints in batch mode */}
+      {mode === "batch" && knownHints.length > 0 && !showSaved && (
+        <div className="mb-3 p-2 rounded-lg bg-blue-50 border border-blue-200 flex items-start gap-2">
+          <Lightbulb className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+          <div className="text-xs text-blue-700">
+            发现已收藏的术语：
+            <span className="flex flex-wrap gap-1 mt-1">
+              {knownHints.slice(0, 10).map((t) => (
+                <span key={t} className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-600">{t}</span>
+              ))}
+              {knownHints.length > 10 && <span className="text-blue-500">+{knownHints.length - 10} 个</span>}
+            </span>
+          </div>
+        </div>
+      )}
 
       {showSaved ? (
         <div className="rounded-xl border border-[var(--color-border)] p-4">

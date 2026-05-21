@@ -6,6 +6,7 @@ import {
   BookOpen, FileText, Monitor, Mic, StickyNote, ArrowRightLeft, ArrowRight,
   Lightbulb, Clock, CheckSquare, Plus, Trash2, ChevronRight, ListTodo,
   FilePlus, Mic as MicIcon, Sparkles, FolderOpen, Download, AlertTriangle, X,
+  AlertCircle, Calendar, Flag,
 } from "lucide-react";
 import { getAIConfig, hasDefaultAI } from "@/lib/ai";
 import { getAllPRDs, type PRDDocument } from "@/lib/prd-store";
@@ -19,6 +20,10 @@ interface TodoItem {
   done: boolean;
   createdAt: string;
   projectId?: string;
+  priority?: "high" | "medium" | "low";
+  dueDate?: string;
+  linkedPRD?: string;
+  linkedMeeting?: string;
 }
 
 function getTodos(projectId?: string | null): TodoItem[] {
@@ -144,6 +149,8 @@ export default function Dashboard() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [todoInput, setTodoInput] = useState("");
+  const [todoPriority, setTodoPriority] = useState<"high" | "medium" | "low">("medium");
+  const [todoDueDate, setTodoDueDate] = useState("");
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [backupDays, setBackupDays] = useState<number | null>(null);
   const [backupDone, setBackupDone] = useState(false);
@@ -185,6 +192,8 @@ export default function Dashboard() {
       done: false,
       createdAt: new Date().toISOString(),
       projectId: currentProjectId || undefined,
+      priority: todoPriority,
+      dueDate: todoDueDate || undefined,
     };
     // Save to all todos (not just filtered)
     const allTodos = JSON.parse(localStorage.getItem("pm-todos") || "[]") as TodoItem[];
@@ -193,6 +202,8 @@ export default function Dashboard() {
     // Refresh filtered view
     setTodos(getTodos(currentProjectId));
     setTodoInput("");
+    setTodoPriority("medium");
+    setTodoDueDate("");
   };
 
   const toggleTodo = (id: string) => {
@@ -212,6 +223,11 @@ export default function Dashboard() {
   const dismissWorkflow = () => {
     setShowWorkflow(false);
     localStorage.setItem("workflow-dismissed", "1");
+  };
+
+  const restoreWorkflow = () => {
+    localStorage.removeItem("workflow-dismissed");
+    setShowWorkflow(true);
   };
 
   const handleQuickBackup = () => {
@@ -305,7 +321,7 @@ export default function Dashboard() {
       )}
 
       {/* Quick Backup Button — always visible */}
-      <div className="mb-4 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-2 flex-wrap">
         <button
           onClick={handleQuickBackup}
           className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-colors min-h-[44px] ${
@@ -317,6 +333,15 @@ export default function Dashboard() {
           <Download className="w-4 h-4" />
           {backupDone ? "已备份" : "一键备份"}
         </button>
+        {!showWorkflow && (
+          <button
+            onClick={restoreWorkflow}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-gray-50 hover:text-[var(--color-foreground)] transition-colors min-h-[44px]"
+          >
+            <Lightbulb className="w-4 h-4" />
+            使用指南
+          </button>
+        )}
         {backupDays !== null && backupDays < 7 && (
           <span className="text-xs text-[var(--color-muted-foreground)]">
             上次备份: {backupDays === 0 ? "今天" : `${backupDays} 天前`}
@@ -493,7 +518,7 @@ export default function Dashboard() {
           </div>
           <div className="p-3">
             {/* Add todo input */}
-            <div className="flex gap-2 mb-3">
+            <div className="flex gap-2 mb-2">
               <input
                 type="text"
                 value={todoInput}
@@ -510,6 +535,36 @@ export default function Dashboard() {
                 <Plus className="w-4 h-4" />
               </button>
             </div>
+            {/* Priority & due date row */}
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-1">
+                <Flag className="w-3 h-3 text-[var(--color-muted-foreground)]" />
+                {(["high", "medium", "low"] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setTodoPriority(p)}
+                    className={`px-2 py-0.5 rounded text-[10px] tap-exempt ${
+                      todoPriority === p
+                        ? p === "high" ? "bg-red-100 text-red-600"
+                          : p === "medium" ? "bg-amber-100 text-amber-600"
+                          : "bg-gray-100 text-gray-500"
+                        : "text-[var(--color-muted-foreground)] hover:bg-gray-50"
+                    }`}
+                  >
+                    {p === "high" ? "高" : p === "medium" ? "中" : "低"}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1 ml-auto">
+                <Calendar className="w-3 h-3 text-[var(--color-muted-foreground)]" />
+                <input
+                  type="date"
+                  value={todoDueDate}
+                  onChange={(e) => setTodoDueDate(e.target.value)}
+                  className="px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[10px] text-[var(--color-muted-foreground)] focus:outline-none tap-exempt"
+                />
+              </div>
+            </div>
 
             {todos.length === 0 ? (
               <div className="py-4 text-center">
@@ -519,14 +574,27 @@ export default function Dashboard() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-1 max-h-[240px] overflow-y-auto">
+              <div className="space-y-1 max-h-[280px] overflow-y-auto">
                 {pendingTodos.map((todo) => (
                   <div key={todo.id} className="flex items-center gap-2 group p-1.5 rounded hover:bg-gray-50">
                     <button
                       onClick={() => toggleTodo(todo.id)}
-                      className="w-4 h-4 rounded border border-gray-300 hover:border-[var(--color-primary)] shrink-0 flex items-center justify-center"
+                      className={`w-4 h-4 rounded border shrink-0 flex items-center justify-center ${
+                        todo.priority === "high" ? "border-red-400"
+                          : "border-gray-300 hover:border-[var(--color-primary)]"
+                      }`}
                     />
                     <span className="flex-1 text-sm min-w-0 truncate">{todo.text}</span>
+                    {todo.priority === "high" && (
+                      <Flag className="w-3 h-3 text-red-500 shrink-0" />
+                    )}
+                    {todo.dueDate && (
+                      <span className={`text-[10px] shrink-0 ${
+                        new Date(todo.dueDate) < new Date() ? "text-red-500 font-medium" : "text-[var(--color-muted-foreground)]"
+                      }`}>
+                        {new Date(todo.dueDate).toLocaleDateString("zh-CN", { month: "short", day: "numeric" })}
+                      </span>
+                    )}
                     <button
                       onClick={() => deleteTodo(todo.id)}
                       className="p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"

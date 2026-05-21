@@ -847,7 +847,7 @@ export default function RecordingPage() {
       </div>
 
       {/* Recording area + Real-time panel */}
-      <div className={`flex flex-col md:flex-row gap-4 ${showRealtimePanel && recording ? "" : ""}`}>
+      <div className={`flex flex-col md:flex-row gap-4 recording-layout ${showRealtimePanel && recording ? "" : ""}`}>
         {/* Left: recording controls */}
         <div className={`${showRealtimePanel && recording ? "flex-1 min-w-0" : "w-full"}`}>
           <div className="rounded-xl border border-[var(--color-border)] p-4 md:p-6 mb-6">

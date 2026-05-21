@@ -73,4 +73,42 @@ body {
   .mobile-hidden {
     display: none !important;
   }
+
+  /* Fix content not being squeezed by any full-width elements */
+  main {
+    overflow-x: hidden;
+  }
+
+  /* Ensure textareas and code blocks don't overflow */
+  textarea, pre, code, .prose {
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  /* Recording page: ensure panels stack vertically and don't overflow */
+  .recording-layout {
+    flex-direction: column !important;
+  }
+  .recording-layout > * {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* Summary annotator: readable on mobile */
+  .summary-editor {
+    max-height: 50vh;
+    font-size: 14px;
+  }
+
+  /* Real-time speech panel: limit height on mobile */
+  .realtime-panel {
+    max-height: 40vh;
+  }
+
+  /* Fix long words/URLs breaking layout */
+  .break-word-mobile {
+    overflow-wrap: break-word;
+    word-break: break-all;
+  }
 }
