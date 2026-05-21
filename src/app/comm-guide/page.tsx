@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useProject } from "@/lib/project-context";
+import { getAllPRDs, type PRDDocument } from "@/lib/prd-store";
 import {
   Search, Star, Trash2, MessageSquare, ChevronDown, ChevronRight,
   Copy, Check, BookOpen, MessageCircle, HelpCircle, Lightbulb,
-  Building2, Briefcase, Plus, Edit3, X, Sparkles,
+  Building2, Briefcase, Plus, Edit3, X, Sparkles, FileText,
 } from "lucide-react";
 
 // ── Data types ──
@@ -1080,10 +1081,16 @@ export default function CommGuidePage() {
   const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [prds, setPrds] = useState<PRDDocument[]>([]);
+  const [selectedPRDId, setSelectedPRDId] = useState<string>("");
 
   useEffect(() => {
     saveFavorites(favorites);
   }, [favorites]);
+
+  useEffect(() => {
+    setPrds(getAllPRDs(currentProjectId ?? undefined));
+  }, [currentProjectId]);
 
   useEffect(() => {
     // Only save if we have loaded scripts (skip initial empty state)
@@ -1187,6 +1194,10 @@ export default function CommGuidePage() {
       let systemPrompt = AI_SYSTEM_PROMPTS[perspective];
       if (currentProject) {
         systemPrompt += `\n\n当前项目背景：你正在为「${currentProject.name}」项目提供建议。${currentProject.description ? `项目描述：${currentProject.description}` : ""}请基于这个具体项目给出针对性的建议，而不是泛泛而谈。`;
+      }
+      const selectedPRD = selectedPRDId ? prds.find((p) => p.id === selectedPRDId) : null;
+      if (selectedPRD) {
+        systemPrompt += `\n\n用户已关联以下 PRD 文档（标题：${selectedPRD.title}，版本 v${selectedPRD.version}），请基于 PRD 内容给出更精准的建议：\n\n${selectedPRD.content.substring(0, 3000)}${selectedPRD.content.length > 3000 ? "\n...(内容过长已截断)" : ""}`;
       }
       const conversationHistory = chatMessages.map((m) => ({
         role: m.role === "user" ? "user" as const : "assistant" as const,
@@ -1468,6 +1479,28 @@ export default function CommGuidePage() {
             )}
           </div>
           <div className="border-t border-[var(--color-border)] p-3">
+            {prds.length > 0 && (
+              <div className="flex items-center gap-2 mb-2">
+                <FileText className="w-3.5 h-3.5 text-[var(--color-muted-foreground)] shrink-0" />
+                <select
+                  value={selectedPRDId}
+                  onChange={(e) => setSelectedPRDId(e.target.value)}
+                  className="flex-1 text-xs px-2 py-1.5 rounded border border-[var(--color-border)] bg-white focus:outline-none focus:border-[var(--color-primary)]"
+                >
+                  <option value="">不关联 PRD</option>
+                  {prds.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title} (v{p.version})
+                    </option>
+                  ))}
+                </select>
+                {selectedPRDId && (
+                  <button onClick={() => setSelectedPRDId("")} className="text-xs text-[var(--color-muted-foreground)] hover:text-red-500">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
             <div className="flex gap-2">
               <input
                 type="text"
