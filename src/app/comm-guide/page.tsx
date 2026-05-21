@@ -831,7 +831,7 @@ function saveCustomScripts(scripts: CustomScript[]) {
 // ── Component ──
 
 export default function CommGuidePage() {
-  const { currentProjectId } = useProject();
+  const { currentProjectId, currentProject } = useProject();
   const [perspective, setPerspective] = useState<Perspective>("partyA");
   const [activeCategory, setActiveCategory] = useState<Category>("opening");
   const [searchQuery, setSearchQuery] = useState("");
@@ -968,7 +968,10 @@ export default function CommGuidePage() {
     setChatLoading(true);
 
     try {
-      const systemPrompt = AI_SYSTEM_PROMPTS[perspective];
+      let systemPrompt = AI_SYSTEM_PROMPTS[perspective];
+      if (currentProject) {
+        systemPrompt += `\n\n当前项目背景：你正在为「${currentProject.name}」项目提供建议。${currentProject.description ? `项目描述：${currentProject.description}` : ""}请基于这个具体项目给出针对性的建议，而不是泛泛而谈。`;
+      }
       const conversationHistory = chatMessages.map((m) => ({
         role: m.role === "user" ? "user" as const : "assistant" as const,
         content: m.content,
