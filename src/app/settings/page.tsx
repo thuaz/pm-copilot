@@ -31,6 +31,7 @@ function collectAllData(): Record<string, unknown> {
     "prd-docs", "prd-draft", "saved-terms", "saved-notes", "pm-todos", "prototypes",
     "pm-projects", "pm-current-project",
     "ai-config", "workflow-dismissed", "comm-guide-favorites", "comm-guide-custom",
+    "sidebar-pinned",
   ];
   const data: Record<string, unknown> = {};
   keys.forEach((key) => {
@@ -53,6 +54,7 @@ function clearAllData() {
     "prd-docs", "prd-draft", "saved-terms", "saved-notes", "pm-todos", "prototypes",
     "pm-projects", "pm-current-project",
     "ai-config", "workflow-dismissed", "comm-guide-favorites", "comm-guide-custom",
+    "sidebar-pinned",
   ];
   keys.forEach((key) => localStorage.removeItem(key));
 }

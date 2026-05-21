@@ -26,6 +26,16 @@ import {
   RotateCcw,
   X,
   BookOpen,
+  Bold,
+  Italic,
+  Heading2,
+  Heading3,
+  ListOrdered,
+  CheckSquare,
+  Code,
+  Link,
+  Minus,
+  Quote,
 } from "lucide-react";
 import { MD } from "@/components/markdown";
 
@@ -55,6 +65,10 @@ export default function PRDPage() {
   // Terms Reference Panel
   const [showTermsPanel, setShowTermsPanel] = useState(false);
   const [termsList, setTermsList] = useState<{ term: string; explanation: string }[]>([]);
+  // Refs for textareas that support Markdown toolbar
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+  const iterInputRef = useRef<HTMLTextAreaElement>(null);
+  const wizardTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => {
     setPrds(getAllPRDs(currentProjectId));
@@ -305,14 +319,18 @@ export default function PRDPage() {
             输入反馈或修改意见（比如工程师的建议），AI 自动更新 PRD
           </p>
           <div className="flex gap-2">
-            <input
-              type="text"
-              value={iterInput}
-              onChange={(e) => setIterInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleIterate()}
-              placeholder="比如：工程师说登录模块需要加验证码..."
-              className="flex-1 px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:border-[var(--color-primary)]"
-            />
+            <div className="flex-1">
+              <MarkdownToolbar textareaRef={iterInputRef} onInsert={setIterInput} />
+              <textarea
+                ref={iterInputRef}
+                value={iterInput}
+                onChange={(e) => setIterInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleIterate()}
+                placeholder="比如：工程师说登录模块需要加验证码..."
+                rows={2}
+                className="w-full px-3 py-2 rounded-b-lg border border-[var(--color-border)] border-t-0 text-sm focus:outline-none focus:border-[var(--color-primary)] resize-y"
+              />
+            </div>
             <button
               onClick={handleIterate}
               disabled={iterating || !iterInput.trim()}
@@ -645,16 +663,22 @@ export default function PRDPage() {
                   <div className="flex justify-start"><div className="bg-gray-100 rounded-xl px-3.5 py-2.5"><span className="inline-block w-2 h-4 bg-gray-400 animate-pulse" /></div></div>
                 )}
               </div>
-              <div className="p-3 border-t border-[var(--color-border)] flex gap-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleChatSend()}
-                  placeholder="描述你的想法..."
-                  className="flex-1 px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:border-[var(--color-primary)]"
-                />
-                <button onClick={handleChatSend} disabled={loading || !chatInput.trim()} className="px-3 py-2 rounded-lg bg-[var(--color-primary)] text-white text-sm disabled:opacity-40">发送</button>
+              <div className="p-3 border-t border-[var(--color-border)]">
+                <MarkdownToolbar textareaRef={chatInputRef} onInsert={setChatInput} />
+                <div className="flex gap-2 mt-0">
+                  <textarea
+                    ref={chatInputRef}
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleChatSend()}
+                    placeholder="描述你的想法..."
+                    rows={2}
+                    className="flex-1 px-3 py-2 rounded-b-lg border border-[var(--color-border)] border-t-0 text-sm focus:outline-none focus:border-[var(--color-primary)] resize-y"
+                  />
+                </div>
+                <div className="flex justify-end mt-2">
+                  <button onClick={handleChatSend} disabled={loading || !chatInput.trim()} className="px-3 py-2 rounded-lg bg-[var(--color-primary)] text-white text-sm disabled:opacity-40">发送</button>
+                </div>
               </div>
               {chatHistory.length > 0 && (
                 <div className="px-3 pb-3">
@@ -675,7 +699,18 @@ export default function PRDPage() {
               ].map((s) => (
                 <div key={s.key}>
                   <label className="text-sm font-medium mb-1 block">{s.label}</label>
-                  <textarea value={wizardData[s.key] || ""} onChange={(e) => setWizardData((p) => ({ ...p, [s.key]: e.target.value }))} placeholder={s.ph} rows={3} className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:border-[var(--color-primary)] resize-y" />
+                  <MarkdownToolbar
+                    textareaRef={{ current: wizardTextareaRefs.current[s.key] ?? null }}
+                    onInsert={(val) => setWizardData((p) => ({ ...p, [s.key]: val }))}
+                  />
+                  <textarea
+                    ref={(el) => { wizardTextareaRefs.current[s.key] = el; }}
+                    value={wizardData[s.key] || ""}
+                    onChange={(e) => setWizardData((p) => ({ ...p, [s.key]: e.target.value }))}
+                    placeholder={s.ph}
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-b-lg border border-[var(--color-border)] border-t-0 text-sm focus:outline-none focus:border-[var(--color-primary)] resize-y"
+                  />
                 </div>
               ))}
               <button onClick={handleWizardGenerate} disabled={loading} className="w-full py-2.5 rounded-lg bg-[var(--color-primary)] text-white text-sm disabled:opacity-40 flex items-center justify-center gap-2">
@@ -786,6 +821,89 @@ export default function PRDPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Markdown formatting helpers ---------- */
+
+interface ToolbarButton {
+  icon: React.ReactNode;
+  title: string;
+  prefix: string;
+  suffix: string;
+  placeholder: string;
+}
+
+function insertMarkdown(
+  textarea: HTMLTextAreaElement,
+  prefix: string,
+  suffix: string,
+  placeholder: string,
+  onValueChange: (value: string) => void,
+) {
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const selected = textarea.value.substring(start, end);
+  const before = textarea.value.substring(0, start);
+  const after = textarea.value.substring(end);
+  const insertion = selected || placeholder;
+  const newText = before + prefix + insertion + suffix + after;
+  onValueChange(newText);
+  // Defer refocus so React has time to reconcile the value
+  requestAnimationFrame(() => {
+    textarea.focus();
+    const cursorPos = start + prefix.length + insertion.length + suffix.length;
+    textarea.setSelectionRange(
+      selected ? cursorPos : start + prefix.length,
+      selected ? cursorPos : start + prefix.length + insertion.length,
+    );
+  });
+}
+
+const TOOLBAR_BUTTONS: ToolbarButton[] = [
+  { icon: <Bold className="w-4 h-4" />, title: "加粗", prefix: "**", suffix: "**", placeholder: "粗体文本" },
+  { icon: <Italic className="w-4 h-4" />, title: "斜体", prefix: "*", suffix: "*", placeholder: "斜体文本" },
+  { icon: <Heading2 className="w-4 h-4" />, title: "标题 2", prefix: "## ", suffix: "", placeholder: "标题" },
+  { icon: <Heading3 className="w-4 h-4" />, title: "标题 3", prefix: "### ", suffix: "", placeholder: "标题" },
+  { icon: <List className="w-4 h-4" />, title: "无序列表", prefix: "- ", suffix: "", placeholder: "列表项" },
+  { icon: <ListOrdered className="w-4 h-4" />, title: "有序列表", prefix: "1. ", suffix: "", placeholder: "列表项" },
+  { icon: <CheckSquare className="w-4 h-4" />, title: "待办", prefix: "- [ ] ", suffix: "", placeholder: "待办项" },
+  { icon: <Code className="w-4 h-4" />, title: "代码块", prefix: "```\n", suffix: "\n```", placeholder: "代码" },
+  { icon: <Link className="w-4 h-4" />, title: "链接", prefix: "[", suffix: "](url)", placeholder: "链接文本" },
+  { icon: <Minus className="w-4 h-4" />, title: "分隔线", prefix: "\n---\n", suffix: "", placeholder: "" },
+  { icon: <Quote className="w-4 h-4" />, title: "引用", prefix: "> ", suffix: "", placeholder: "引用内容" },
+];
+
+function MarkdownToolbar({
+  textareaRef,
+  onInsert,
+}: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onInsert: (value: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5 px-1.5 py-1 bg-gray-50 rounded-t-lg border border-b-0 border-[var(--color-border)]">
+      {TOOLBAR_BUTTONS.map((btn, i) => (
+        <span key={i} className="contents">
+          {i > 0 && (i === 2 || i === 4 || i === 7 || i === 9) && (
+            <span className="w-px h-4 bg-gray-300 mx-0.5 select-none" />
+          )}
+          <button
+            type="button"
+            title={btn.title}
+            className="p-1.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700 transition-colors"
+            onMouseDown={(e) => {
+              e.preventDefault(); // prevent textarea blur
+              const ta = textareaRef.current;
+              if (!ta) return;
+              insertMarkdown(ta, btn.prefix, btn.suffix, btn.placeholder, onInsert);
+            }}
+          >
+            {btn.icon}
+          </button>
+        </span>
+      ))}
     </div>
   );
 }

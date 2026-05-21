@@ -12,7 +12,7 @@ import {
   Mic, MicOff, Upload, Loader2, Copy, Check, FileText, BookOpen,
   Sparkles, RefreshCw, AlertCircle, Edit3, CheckCircle, ChevronRight,
   Download, ChevronDown, Eye, Lightbulb, MessageSquare, Brain,
-  Zap, ExternalLink,
+  Zap, ExternalLink, Pause, Play,
 } from "lucide-react";
 import { MD } from "@/components/markdown";
 
@@ -139,6 +139,7 @@ function getSpeechRecognition(): SpeechRecognitionConstructor | null {
 export default function RecordingPage() {
   const [step, setStep] = useState<Step>("record");
   const [recording, setRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
 
   // Quick mode state
@@ -160,6 +161,7 @@ export default function RecordingPage() {
   const [copied, setCopied] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const isPausedRef = useRef<boolean>(false);
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -261,8 +263,8 @@ export default function RecordingPage() {
     };
 
     recognition.onend = () => {
-      // Auto-restart if still recording
-      if (mediaRecorderRef.current?.state === "recording") {
+      // Auto-restart if still recording and not paused
+      if (mediaRecorderRef.current?.state === "recording" && !isPausedRef.current) {
         try {
           recognition.start();
         } catch {
@@ -387,6 +389,44 @@ export default function RecordingPage() {
     };
   }, [audioUrl]);
 
+  const pauseRecording = () => {
+    const mr = mediaRecorderRef.current;
+    if (!mr || mr.state !== "recording") return;
+
+    // Pause MediaRecorder
+    mr.pause();
+    setIsPaused(true);
+    isPausedRef.current = true;
+
+    // Stop speech recognition (Web Speech API has no native pause)
+    if (speechRef.current) {
+      speechRef.current.abort();
+    }
+
+    // Stop timer
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const resumeRecording = () => {
+    const mr = mediaRecorderRef.current;
+    if (!mr || mr.state !== "paused") return;
+
+    // Resume MediaRecorder
+    mr.resume();
+    setIsPaused(false);
+    isPausedRef.current = false;
+
+    // Restart speech recognition
+    startSpeechRecognition();
+
+    // Restart timer
+    const t = setInterval(() => setDuration((d) => d + 1), 1000);
+    timerRef.current = t;
+  };
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -408,6 +448,8 @@ export default function RecordingPage() {
       };
       mr.start();
       setRecording(true);
+      setIsPaused(false);
+      isPausedRef.current = false;
       setDuration(0);
       resetState();
 
@@ -433,11 +475,18 @@ export default function RecordingPage() {
       const mr = mediaRecorderRef.current;
       const wasQuickMode = quickMode;
 
+      // If paused, resume first so onstop fires correctly
+      if (mr.state === "paused") {
+        mr.resume();
+      }
+
       // Capture the blob before stopping
       const pendingBlob = new Blob(chunksRef.current, { type: mr.mimeType });
 
       mr.stop();
       setRecording(false);
+      setIsPaused(false);
+      isPausedRef.current = false;
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -736,18 +785,50 @@ export default function RecordingPage() {
               <button
                 onClick={recording ? stopRecording : startRecording}
                 className={`w-24 h-24 md:w-20 md:h-20 rounded-full flex items-center justify-center transition-all shrink-0 shadow-lg ${
-                  recording ? "bg-red-500 hover:bg-red-600 animate-pulse" : "bg-[var(--color-primary)] hover:bg-blue-700"
+                  recording
+                    ? isPaused
+                      ? "bg-red-500 hover:bg-red-600"
+                      : "bg-red-500 hover:bg-red-600 animate-pulse"
+                    : "bg-[var(--color-primary)] hover:bg-blue-700"
                 }`}
                 aria-label={recording ? "停止录音" : "开始录音"}
               >
                 {recording ? <MicOff className="w-10 h-10 md:w-8 md:h-8 text-white" /> : <Mic className="w-10 h-10 md:w-8 md:h-8 text-white" />}
               </button>
+
+              {/* Pause/Resume button — shown only while recording */}
+              {recording && (
+                <button
+                  onClick={isPaused ? resumeRecording : pauseRecording}
+                  className={`w-16 h-16 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all shrink-0 shadow-lg ${
+                    isPaused
+                      ? "bg-green-500 hover:bg-green-600"
+                      : "bg-amber-500 hover:bg-amber-600"
+                  }`}
+                  aria-label={isPaused ? "继续录音" : "暂停录音"}
+                >
+                  {isPaused
+                    ? <Play className="w-7 h-7 md:w-6 md:h-6 text-white ml-0.5" />
+                    : <Pause className="w-7 h-7 md:w-6 md:h-6 text-white" />
+                  }
+                </button>
+              )}
+
               <div className="flex-1 text-center sm:text-left">
                 {recording ? (
                   <div>
-                    <div className="text-2xl font-mono font-bold text-red-500">{formatDuration(duration)}</div>
-                    <p className="text-sm text-[var(--color-muted-foreground)]">正在录音... 点击停止</p>
-                    {speechSupported && (
+                    <div className={`text-2xl font-mono font-bold ${
+                      isPaused ? "text-amber-500" : "text-red-500"
+                    }`}>
+                      {formatDuration(duration)}
+                      {isPaused && (
+                        <span className="text-sm font-medium ml-2 animate-pulse">已暂停</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-[var(--color-muted-foreground)]">
+                      {isPaused ? "录音已暂停，点击继续" : "正在录音... 点击暂停或停止"}
+                    </p>
+                    {speechSupported && !isPaused && (
                       <p className="text-xs text-green-600 mt-1 flex items-center gap-1 justify-center sm:justify-start">
                         <Eye className="w-3 h-3" /> 实时语音识别已启动
                       </p>
@@ -841,7 +922,15 @@ export default function RecordingPage() {
 
         {/* Right: Real-time panel (only during recording) */}
         {showRealtimePanel && recording && (
-          <div className="w-full md:w-96 shrink-0 rounded-xl border border-blue-200 bg-slate-50 flex flex-col max-h-[400px] md:max-h-[600px]">
+          <div className="w-full md:w-96 shrink-0 rounded-xl border border-blue-200 bg-slate-50 flex flex-col max-h-[400px] md:max-h-[600px] relative">
+            {/* Paused overlay */}
+            {isPaused && (
+              <div className="absolute inset-0 z-10 bg-amber-50/80 backdrop-blur-sm flex flex-col items-center justify-center rounded-xl">
+                <Pause className="w-10 h-10 text-amber-500 mb-2" />
+                <p className="text-base font-medium text-amber-700">录音已暂停</p>
+                <p className="text-xs text-amber-600 mt-1">点击继续按钮恢复录音</p>
+              </div>
+            )}
             <div className="px-4 py-3 border-b border-blue-200 bg-blue-50 rounded-t-xl">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-blue-700 flex items-center gap-1.5">
