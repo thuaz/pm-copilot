@@ -13,6 +13,7 @@ export interface PRDDocument {
   source: "recording" | "chat" | "wizard" | "iteration";
   sourceNote?: string;
   projectId?: string;
+  tags?: string[];
   createdAt: string;
   updatedAt: string;
   history?: PRDHistoryEntry[];
@@ -49,7 +50,8 @@ export function createPRD(
   content: string,
   source: PRDDocument["source"],
   sourceNote?: string,
-  projectId?: string
+  projectId?: string,
+  tags?: string[],
 ): PRDDocument {
   const prd: PRDDocument = {
     id: `prd-${Date.now()}`,
@@ -59,6 +61,7 @@ export function createPRD(
     source,
     sourceNote,
     projectId: projectId || undefined,
+    tags: tags || [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

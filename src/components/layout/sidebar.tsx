@@ -13,6 +13,7 @@ import {
   ArrowRightLeft,
   Settings,
   Menu,
+  Search,
   X,
   MessageCircleHeart,
   ChevronDown,
@@ -24,6 +25,7 @@ import {
   CalendarDays,
   Star,
   StarOff,
+  Clock,
 } from "lucide-react";
 import { useProject } from "@/lib/project-context";
 
@@ -32,6 +34,8 @@ const DEFAULT_PINNED = ["/recording", "/prd", "/notes"];
 
 const navItems = [
   { href: "/", label: "工作台", icon: LayoutDashboard },
+  { href: "/search", label: "搜索", icon: Search },
+  { href: "/timeline", label: "时间线", icon: Clock, desc: "项目完整时间线" },
   // Meeting group — both record and notes share the same unified history
   { href: "/recording", label: "录音分析", icon: Mic, group: "meeting" as const },
   { href: "/notes", label: "会议记录", icon: StickyNote, group: "meeting" as const },

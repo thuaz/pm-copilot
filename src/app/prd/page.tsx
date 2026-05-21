@@ -54,6 +54,10 @@ export default function PRDPage() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // Tags
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [editingTagsFor, setEditingTagsFor] = useState<string | null>(null);
+  const [tagInput, setTagInput] = useState("");
   // Iteration
   const [iterating, setIterating] = useState(false);
   const [iterInput, setIterInput] = useState("");
@@ -507,11 +511,39 @@ export default function PRDPage() {
 
   // PRD List View
   if (view === "list") {
+    // Collect all unique tags
+    const allTags = Array.from(new Set(prds.flatMap((p) => p.tags || []))).sort();
+
     const filtered = prds.filter((p) => {
+      if (tagFilter && !(p.tags || []).includes(tagFilter)) return false;
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       return p.title.toLowerCase().includes(q) || p.content.toLowerCase().includes(q);
     });
+
+    const handleAddTag = (prdId: string, tag: string) => {
+      const prd = prds.find((p) => p.id === prdId);
+      if (!prd) return;
+      const t = tag.trim();
+      if (!t) return;
+      const tags = prd.tags || [];
+      if (tags.includes(t)) return;
+      const updated = { ...prd, tags: [...tags, t] };
+      const docs = getAllPRDs();
+      const idx = docs.findIndex((p) => p.id === prdId);
+      if (idx >= 0) { docs[idx] = updated; localStorage.setItem("prd-docs", JSON.stringify(docs)); }
+      refreshList();
+    };
+
+    const handleRemoveTag = (prdId: string, tag: string) => {
+      const prd = prds.find((p) => p.id === prdId);
+      if (!prd) return;
+      const updated = { ...prd, tags: (prd.tags || []).filter((t) => t !== tag) };
+      const docs = getAllPRDs();
+      const idx = docs.findIndex((p) => p.id === prdId);
+      if (idx >= 0) { docs[idx] = updated; localStorage.setItem("prd-docs", JSON.stringify(docs)); }
+      refreshList();
+    };
 
     return (
       <div>
@@ -541,6 +573,35 @@ export default function PRDPage() {
             </button>
           </div>
         </div>
+
+        {/* Tag filter bar */}
+        {allTags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            <button
+              onClick={() => setTagFilter(null)}
+              className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
+                tagFilter === null
+                  ? "bg-[var(--color-primary)] text-white"
+                  : "bg-gray-100 text-[var(--color-muted-foreground)] hover:bg-gray-200"
+              }`}
+            >
+              全部
+            </button>
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+                className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
+                  tagFilter === tag
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-[var(--color-muted-foreground)] hover:bg-gray-200"
+                }`}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
 
         {prds.length === 0 ? (
           <div className="rounded-xl border border-dashed border-[var(--color-border)] p-8 text-center">
@@ -601,15 +662,105 @@ export default function PRDPage() {
                       {preview}
                     </div>
                   )}
+                  {(prd.tags && prd.tags.length > 0) && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {prd.tags.map((tag) => (
+                        <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(prd.id); }}
-                  className="p-1.5 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 mt-0.5"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setEditingTagsFor(prd.id); setTagInput(""); }}
+                    className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-500"
+                    title="管理标签"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDelete(prd.id); }}
+                    className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             );})}
+          </div>
+        )}
+
+        {/* Tag editing modal */}
+        {editingTagsFor && (
+          <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-lg max-w-sm w-full p-5">
+              <h3 className="text-sm font-medium mb-3">管理标签</h3>
+              {(() => {
+                const prd = prds.find((p) => p.id === editingTagsFor);
+                if (!prd) return null;
+                const currentTags = prd.tags || [];
+                return (
+                  <>
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {currentTags.length === 0 && (
+                        <span className="text-xs text-[var(--color-muted-foreground)]">暂无标签，输入添加</span>
+                      )}
+                      {currentTags.map((tag) => (
+                        <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 text-blue-600 text-xs">
+                          {tag}
+                          <button
+                            onClick={() => handleRemoveTag(editingTagsFor, tag)}
+                            className="hover:text-red-500"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && tagInput.trim()) {
+                            handleAddTag(editingTagsFor, tagInput.trim());
+                            setTagInput("");
+                          }
+                        }}
+                        placeholder="输入标签，回车添加..."
+                        className="flex-1 px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:border-[var(--color-primary)]"
+                      />
+                    </div>
+                    {allTags.length > 0 && (
+                      <div className="mt-2">
+                        <p className="text-[10px] text-[var(--color-muted-foreground)] mb-1">常用标签：</p>
+                        <div className="flex flex-wrap gap-1">
+                          {allTags.filter((t) => !currentTags.includes(t)).map((tag) => (
+                            <button
+                              key={tag}
+                              onClick={() => handleAddTag(editingTagsFor, tag)}
+                              className="px-2 py-0.5 rounded text-[10px] bg-gray-100 text-[var(--color-muted-foreground)] hover:bg-blue-50 hover:text-blue-600"
+                            >
+                              + {tag}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+              <div className="flex justify-end mt-4">
+                <button
+                  onClick={() => setEditingTagsFor(null)}
+                  className="px-4 py-2 rounded-lg text-sm border border-[var(--color-border)] hover:bg-gray-50"
+                >
+                  完成
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
