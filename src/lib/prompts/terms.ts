@@ -264,6 +264,11 @@ export const PROTOTYPE_SYSTEM_PROMPT = `你是一位前端开发专家，帮助�
 - 右侧内容区至少展示 3 个不同页面（通过导航切换）
 - 每个页面都要有实际可操作的交互元素`;
 
+export const PROTOTYPE_ITERATE_PROMPT = `你是一位前端开发专家。用户会给你一个现有的 HTML 页面原型和他的修改要求。
+请根据修改要求调整页面，只改变用户要求的部分，其他部分保持不变。
+必须输出完整的 HTML 文件（包含所有代码），不要省略任何部分。
+只输出 HTML 代码，不要解释。`;
+
 export const DESIGN_PROMPT_SYSTEM = `你是一位资深的 UI/UX 设计师，擅长用文字描述页面视觉设计。
 
 你的任务是根据产品经理的页面描述，生成一段专业的 AI 生图提示词（prompt）。

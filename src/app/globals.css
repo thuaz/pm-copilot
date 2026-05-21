@@ -28,3 +28,49 @@ body {
   color: var(--color-foreground);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
+
+/* ── Mobile responsive helpers ── */
+
+/* Minimum tap target size for all interactive elements on mobile */
+@media (max-width: 767px) {
+  /* Ensure buttons meet 44px minimum tap target */
+  button:not(.tap-exempt),
+  a:not(.tap-exempt),
+  [role="button"]:not(.tap-exempt) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Smaller inline buttons inside cards/lists can keep compact size */
+  button.min-tap-compact {
+    min-height: 36px;
+    min-width: 36px;
+  }
+
+  /* Readable font sizes on small screens */
+  html {
+    font-size: 15px;
+  }
+
+  /* Make tables horizontally scrollable on mobile */
+  .table-scroll-mobile {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Collapse grids to single column */
+  .grid-collapse-mobile {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Full width on mobile */
+  .mobile-full-width {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Hide on mobile */
+  .mobile-hidden {
+    display: none !important;
+  }
+}

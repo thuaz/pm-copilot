@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Search, Star, Trash2, MessageSquare, ChevronDown, ChevronRight,
   Copy, Check, BookOpen, MessageCircle, HelpCircle, Lightbulb,
-  Building2, Briefcase,
+  Building2, Briefcase, Plus, Edit3, X, Sparkles,
 } from "lucide-react";
 
 // ── Data types ──
@@ -15,6 +15,16 @@ interface ScriptItem {
   scenario: string;
   content: string;
   tips?: string;
+}
+
+interface CustomScript {
+  id: string;
+  title: string;
+  category: string;
+  content: string;
+  tips?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface FAQItem {
@@ -32,7 +42,8 @@ type Category =
   | "rejection"
   | "progress"
   | "objection"
-  | "faq";
+  | "faq"
+  | "custom";
 
 interface CategoryMeta {
   key: Category;
@@ -791,6 +802,30 @@ function saveFavorites(items: FavoriteItem[]) {
   localStorage.setItem("comm-guide-favorites", JSON.stringify(items));
 }
 
+// ── Custom scripts helpers ──
+
+const CUSTOM_CATEGORIES = [
+  { value: "opening", label: "开场白" },
+  { value: "requirement", label: "需求" },
+  { value: "rejection", label: "拒绝/拖延" },
+  { value: "progress", label: "进度跟进" },
+  { value: "objection", label: "异议处理" },
+  { value: "other", label: "其他" },
+];
+
+function getCustomScripts(): CustomScript[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem("comm-guide-custom") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomScripts(scripts: CustomScript[]) {
+  localStorage.setItem("comm-guide-custom", JSON.stringify(scripts));
+}
+
 // ── Component ──
 
 export default function CommGuidePage() {
@@ -802,6 +837,17 @@ export default function CommGuidePage() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Custom scripts state
+  const [customScripts, setCustomScripts] = useState<CustomScript[]>(getCustomScripts);
+  const [showScriptModal, setShowScriptModal] = useState(false);
+  const [editingScript, setEditingScript] = useState<CustomScript | null>(null);
+  const [modalForm, setModalForm] = useState({
+    title: "",
+    category: "opening",
+    content: "",
+    tips: "",
+  });
+
   // AI chat state
   const [showChat, setShowChat] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
@@ -811,6 +857,10 @@ export default function CommGuidePage() {
   useEffect(() => {
     saveFavorites(favorites);
   }, [favorites]);
+
+  useEffect(() => {
+    saveCustomScripts(customScripts);
+  }, [customScripts]);
 
   // Get scripts/FAQs based on perspective
   const currentScripts = perspective === "partyA" ? SCRIPTS_PARTY_A : SCRIPTS_PARTY_B;
@@ -830,6 +880,63 @@ export default function CommGuidePage() {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const openCreateModal = () => {
+    setEditingScript(null);
+    setModalForm({ title: "", category: "opening", content: "", tips: "" });
+    setShowScriptModal(true);
+  };
+
+  const openEditModal = (script: CustomScript) => {
+    setEditingScript(script);
+    setModalForm({
+      title: script.title,
+      category: script.category,
+      content: script.content,
+      tips: script.tips || "",
+    });
+    setShowScriptModal(true);
+  };
+
+  const handleSaveScript = () => {
+    if (!modalForm.title.trim() || !modalForm.content.trim()) return;
+    const now = new Date().toISOString();
+    if (editingScript) {
+      setCustomScripts((prev) =>
+        prev.map((s) =>
+          s.id === editingScript.id
+            ? {
+                ...s,
+                title: modalForm.title.trim(),
+                category: modalForm.category,
+                content: modalForm.content.trim(),
+                tips: modalForm.tips.trim() || undefined,
+                updatedAt: now,
+              }
+            : s
+        )
+      );
+    } else {
+      const newScript: CustomScript = {
+        id: `custom-${Date.now()}`,
+        title: modalForm.title.trim(),
+        category: modalForm.category,
+        content: modalForm.content.trim(),
+        tips: modalForm.tips.trim() || undefined,
+        createdAt: now,
+        updatedAt: now,
+      };
+      setCustomScripts((prev) => [...prev, newScript]);
+    }
+    setShowScriptModal(false);
+    setEditingScript(null);
+  };
+
+  const handleDeleteScript = (id: string) => {
+    setCustomScripts((prev) => prev.filter((s) => s.id !== id));
+    setFavorites((prev) => prev.filter((f) => f.id !== id));
+    if (expandedId === id) setExpandedId(null);
   };
 
   const handleSendChat = async () => {
@@ -891,7 +998,19 @@ export default function CommGuidePage() {
 
   const filteredScripts = useMemo(() => {
     if (activeCategory === "faq") return [];
-    let items = currentScripts.filter((s) => s.scenario === activeCategory);
+    // Build combined list of preset + custom scripts
+    const presetItems = currentScripts.filter((s) => s.scenario === activeCategory);
+    const customItems = customScripts
+      .filter((s) => s.category === activeCategory)
+      .map((cs) => ({
+        id: cs.id,
+        title: cs.title,
+        scenario: cs.category,
+        content: cs.content,
+        tips: cs.tips,
+        isCustom: true as const,
+      }));
+    let items: (ScriptItem & { isCustom?: boolean })[] = [...presetItems, ...customItems];
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       items = items.filter(
@@ -905,7 +1024,7 @@ export default function CommGuidePage() {
       items = items.filter((s) => isFavorite(s.id));
     }
     return items;
-  }, [perspective, activeCategory, searchQuery, showFavoritesOnly, favorites, currentScripts]);
+  }, [perspective, activeCategory, searchQuery, showFavoritesOnly, favorites, currentScripts, customScripts]);
 
   const filteredFAQs = useMemo(() => {
     if (activeCategory !== "faq") return [];
@@ -1006,6 +1125,21 @@ export default function CommGuidePage() {
             </button>
           );
         })}
+        <button
+          onClick={() => {
+            setActiveCategory("custom");
+            setSearchQuery("");
+            setShowFavoritesOnly(false);
+          }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+            activeCategory === "custom"
+              ? "bg-orange-50 text-orange-600 font-medium"
+              : "text-[var(--color-muted-foreground)] hover:bg-gray-50"
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          我的话术
+        </button>
         <button
           onClick={() => setShowChat(!showChat)}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
@@ -1135,11 +1269,134 @@ export default function CommGuidePage() {
 
       {/* Content */}
       <div className="space-y-3">
-        {/* Scripts */}
-        {filteredScripts.map((item) => (
+        {/* Custom scripts tab: "My Scripts" view */}
+        {activeCategory === "custom" && (
+          <>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm text-[var(--color-muted-foreground)]">
+                管理你自定义的话术模板，可以按场景分类保存
+              </p>
+              <button
+                onClick={openCreateModal}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-orange-50 text-orange-600 hover:bg-orange-100 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                新建话术
+              </button>
+            </div>
+            {customScripts.length === 0 ? (
+              <div className="text-center py-16 text-[var(--color-muted-foreground)]">
+                <Sparkles className="w-8 h-8 mx-auto mb-3 text-gray-300" />
+                <p className="mb-1">还没有自定义话术</p>
+                <p className="text-xs">点击「新建话术」添加你公司的沟通模板</p>
+              </div>
+            ) : (
+              CUSTOM_CATEGORIES.filter((cat) => customScripts.some((s) => s.category === cat.value)).map((cat) => {
+                const scripts = customScripts.filter((s) => s.category === cat.value);
+                return (
+                  <div key={cat.value} className="mb-2">
+                    <h3 className="text-xs font-medium text-[var(--color-muted-foreground)] uppercase tracking-wide mb-2 px-1">
+                      {cat.label}
+                    </h3>
+                    <div className="space-y-2">
+                      {scripts.map((item) => (
+                        <div
+                          key={item.id}
+                          className="group rounded-xl border border-[var(--color-border)] overflow-hidden"
+                        >
+                          <button
+                            onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50"
+                          >
+                            {expandedId === item.id ? (
+                              <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+                            )}
+                            <span className="flex-1 font-medium text-sm">{item.title}</span>
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-500 font-medium">
+                              自定义
+                            </span>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openEditModal(item); }}
+                                className="p-1 rounded hover:bg-gray-100"
+                                title="编辑"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-gray-400" />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteScript(item.id); }}
+                                className="p-1 rounded hover:bg-red-50"
+                                title="删除"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                              </button>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleFavorite(item.id, "script"); }}
+                              className="p-1 rounded hover:bg-gray-100"
+                            >
+                              <Star
+                                className={`w-4 h-4 ${
+                                  isFavorite(item.id) ? "fill-amber-400 text-amber-400" : "text-gray-300"
+                                }`}
+                              />
+                            </button>
+                          </button>
+                          {expandedId === item.id && (
+                            <div className="border-t border-[var(--color-border)]">
+                              <div className="px-4 py-3">
+                                <div className="whitespace-pre-wrap text-sm leading-relaxed bg-gray-50 rounded-lg p-4">
+                                  {item.content}
+                                </div>
+                                <div className="flex items-center gap-2 mt-3">
+                                  <button
+                                    onClick={() => handleCopy(item.content, item.id)}
+                                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs text-gray-500 hover:bg-gray-100"
+                                  >
+                                    {copiedId === item.id ? (
+                                      <><Check className="w-3.5 h-3.5 text-green-500" /> 已复制</>
+                                    ) : (
+                                      <><Copy className="w-3.5 h-3.5" /> 复制话术</>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const prompt = `话术内容：\n${item.content}${item.tips ? `\n\n使用提示：${item.tips}` : ""}`;
+                                      setChatMessages([{ role: "user" as const, content: prompt }]);
+                                      setShowChat(true);
+                                    }}
+                                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs text-cyan-600 hover:bg-cyan-50"
+                                  >
+                                    <MessageCircle className="w-3.5 h-3.5" /> 发给 AI 优化
+                                  </button>
+                                </div>
+                              </div>
+                              {item.tips && (
+                                <div className="px-4 pb-3">
+                                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                                    <span className="font-medium">使用提示：</span> {item.tips}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </>
+        )}
+
+        {/* Scripts (preset + custom within category tabs) */}
+        {activeCategory !== "faq" && activeCategory !== "custom" && filteredScripts.map((item) => (
           <div
             key={item.id}
-            className="rounded-xl border border-[var(--color-border)] overflow-hidden"
+            className={`group rounded-xl border border-[var(--color-border)] overflow-hidden`}
           >
             <button
               onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
@@ -1151,6 +1408,33 @@ export default function CommGuidePage() {
                 <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
               )}
               <span className="flex-1 font-medium text-sm">{item.title}</span>
+              {item.isCustom && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-500 font-medium">
+                  自定义
+                </span>
+              )}
+              {"isCustom" in item && item.isCustom && (
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const cs = customScripts.find((s) => s.id === item.id);
+                      if (cs) openEditModal(cs);
+                    }}
+                    className="p-1 rounded hover:bg-gray-100"
+                    title="编辑"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-gray-400" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteScript(item.id); }}
+                    className="p-1 rounded hover:bg-red-50"
+                    title="删除"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  </button>
+                </div>
+              )}
               <div className="flex items-center gap-1">
                 <button
                   onClick={(e) => {
@@ -1266,7 +1550,7 @@ export default function CommGuidePage() {
         ))}
 
         {/* Empty state */}
-        {filteredScripts.length === 0 && filteredFAQs.length === 0 && (
+        {activeCategory !== "custom" && filteredScripts.length === 0 && filteredFAQs.length === 0 && (
           <div className="text-center py-12 text-[var(--color-muted-foreground)]">
             {showFavoritesOnly
               ? "还没有收藏的内容"
@@ -1276,6 +1560,92 @@ export default function CommGuidePage() {
           </div>
         )}
       </div>
+
+      {/* Create/Edit Custom Script Modal */}
+      {showScriptModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+              <h3 className="font-medium text-base">
+                {editingScript ? "编辑话术" : "新建话术"}
+              </h3>
+              <button
+                onClick={() => { setShowScriptModal(false); setEditingScript(null); }}
+                className="p-1 rounded hover:bg-gray-100"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  话术名称 <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={modalForm.title}
+                  onChange={(e) => setModalForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="例如：项目启动沟通模板"
+                  className="w-full px-3 py-2.5 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:border-orange-400"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  场景分类
+                </label>
+                <select
+                  value={modalForm.category}
+                  onChange={(e) => setModalForm((f) => ({ ...f, category: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-lg border border-[var(--color-border)] text-sm bg-white focus:outline-none focus:border-orange-400"
+                >
+                  {CUSTOM_CATEGORIES.map((cat) => (
+                    <option key={cat.value} value={cat.value}>{cat.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  话术内容 <span className="text-red-400">*</span>
+                </label>
+                <textarea
+                  value={modalForm.content}
+                  onChange={(e) => setModalForm((f) => ({ ...f, content: e.target.value }))}
+                  placeholder="输入话术的完整内容..."
+                  rows={8}
+                  className="w-full px-3 py-2.5 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:border-orange-400 resize-y"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  使用提示 <span className="text-xs text-gray-400 font-normal">(可选)</span>
+                </label>
+                <textarea
+                  value={modalForm.tips}
+                  onChange={(e) => setModalForm((f) => ({ ...f, tips: e.target.value }))}
+                  placeholder="什么时候用这个话术？有什么注意事项？"
+                  rows={3}
+                  className="w-full px-3 py-2.5 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:border-orange-400 resize-y"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--color-border)]">
+              <button
+                onClick={() => { setShowScriptModal(false); setEditingScript(null); }}
+                className="px-4 py-2 rounded-lg text-sm border border-[var(--color-border)] hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSaveScript}
+                disabled={!modalForm.title.trim() || !modalForm.content.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {editingScript ? "保存修改" : "创建话术"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

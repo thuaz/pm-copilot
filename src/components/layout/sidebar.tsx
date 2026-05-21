@@ -366,14 +366,21 @@ export function Sidebar() {
 
       {/* Mobile slide-out menu */}
       <div
-        className={`lg:hidden fixed top-14 left-0 bottom-0 w-64 bg-[var(--color-sidebar)] border-r border-[var(--color-border)] flex flex-col z-50 transition-transform duration-200 ${
+        className={`lg:hidden fixed top-14 left-0 bottom-0 w-72 sm:w-64 bg-[var(--color-sidebar)] border-r border-[var(--color-border)] flex flex-col z-50 transition-transform duration-200 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="p-4 border-b border-[var(--color-border)]">
+        <div className="p-4 border-b border-[var(--color-border)] flex items-center justify-between">
           <p className="text-xs text-[var(--color-muted-foreground)]">
             PM 助手
           </p>
+          <button
+            onClick={() => setOpen(false)}
+            className="p-2 rounded-lg hover:bg-gray-100 min-h-[44px] min-w-[44px] flex items-center justify-center"
+            aria-label="关闭菜单"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
         <div className="px-2 py-2">
           <ProjectSelector />

@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   BookOpen, FileText, Monitor, Mic, StickyNote, ArrowRightLeft, ArrowRight,
   Lightbulb, Clock, CheckSquare, Plus, Trash2, ChevronRight, ListTodo,
-  FilePlus, Mic as MicIcon, Sparkles, FolderOpen,
+  FilePlus, Mic as MicIcon, Sparkles, FolderOpen, Download, AlertTriangle, X,
 } from "lucide-react";
 import { getAIConfig, hasDefaultAI } from "@/lib/ai";
 import { getAllPRDs, type PRDDocument } from "@/lib/prd-store";
@@ -98,6 +98,44 @@ function getTimeTip(): string {
   return "晚上可以复盘今天的工作，规划明天";
 }
 
+// ── Backup helpers ──
+
+const BACKUP_DATA_KEYS = [
+  "prd-docs", "prd-draft", "saved-terms", "saved-notes", "pm-todos", "prototypes",
+  "pm-projects", "pm-current-project", "ai-config", "workflow-dismissed", "comm-guide-favorites",
+];
+
+function collectAllData(): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  BACKUP_DATA_KEYS.forEach((key) => {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      try { data[key] = JSON.parse(raw); } catch { data[key] = raw; }
+    }
+  });
+  return data;
+}
+
+function getDaysSinceLastBackup(): number | null {
+  const raw = localStorage.getItem("last-backup-date");
+  if (!raw) return null;
+  const last = new Date(raw);
+  const now = new Date();
+  return Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function performQuickBackup() {
+  const data = collectAllData();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `pm-copilot-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  localStorage.setItem("last-backup-date", new Date().toISOString().slice(0, 10));
+}
+
 export default function Dashboard() {
   const hasAI = hasDefaultAI() || !!getAIConfig();
   const { currentProject, currentProjectId } = useProject();
@@ -105,12 +143,24 @@ export default function Dashboard() {
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [todoInput, setTodoInput] = useState("");
   const [showWorkflow, setShowWorkflow] = useState(false);
+  const [backupDays, setBackupDays] = useState<number | null>(null);
+  const [backupDone, setBackupDone] = useState(false);
+  const [showFirstVisitModal, setShowFirstVisitModal] = useState(false);
 
   useEffect(() => {
     setPrds(getAllPRDs(currentProjectId));
     setTodos(getTodos(currentProjectId));
     const dismissed = localStorage.getItem("workflow-dismissed");
     setShowWorkflow(!dismissed);
+
+    // Backup reminder check
+    setBackupDays(getDaysSinceLastBackup());
+
+    // First visit modal
+    const visited = localStorage.getItem("pm-first-visit-dismissed");
+    if (!visited) {
+      setShowFirstVisitModal(true);
+    }
   }, [currentProjectId]);
 
   const recentPRDs = prds.slice(0, 5);
@@ -160,6 +210,18 @@ export default function Dashboard() {
     localStorage.setItem("workflow-dismissed", "1");
   };
 
+  const handleQuickBackup = () => {
+    performQuickBackup();
+    setBackupDone(true);
+    setBackupDays(0);
+    setTimeout(() => setBackupDone(false), 3000);
+  };
+
+  const dismissFirstVisit = () => {
+    setShowFirstVisitModal(false);
+    localStorage.setItem("pm-first-visit-dismissed", "1");
+  };
+
   const workflow = [
     { step: "1", label: "开会前", desc: "用「医学术语」预习专业词汇" },
     { step: "2", label: "开会时", desc: "用「录音分析」一键录音" },
@@ -171,6 +233,93 @@ export default function Dashboard() {
 
   return (
     <div>
+      {/* First Visit Modal */}
+      {showFirstVisitModal && (
+        <div className="fixed inset-0 bg-black/40 z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 relative">
+            <button
+              onClick={dismissFirstVisit}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+              aria-label="关闭"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="text-center mb-4">
+              <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-3">
+                <Lightbulb className="w-6 h-6 text-blue-600" />
+              </div>
+              <h2 className="text-lg font-bold">欢迎使用 PM Copilot!</h2>
+            </div>
+            <div className="text-sm text-[var(--color-muted-foreground)] space-y-3 mb-5">
+              <p>
+                PM Copilot 帮你完成从开会录音、写 PRD 到和开发沟通的完整流程。
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-amber-800">
+                <p className="font-medium mb-1">重要提示</p>
+                <p>
+                  你的所有数据（PRD、会议记录、待办等）都保存在浏览器本地，不会上传到服务器。
+                </p>
+                <p className="mt-1">
+                  <strong>换电脑或清除浏览器数据会丢失所有内容。</strong>建议定期使用「一键备份」功能保存数据到文件。
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { dismissFirstVisit(); handleQuickBackup(); }}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-[var(--color-primary)] text-white text-sm font-medium hover:bg-blue-700 min-h-[44px]"
+              >
+                立即备份
+              </button>
+              <button
+                onClick={dismissFirstVisit}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-[var(--color-border)] text-sm hover:bg-gray-50 min-h-[44px]"
+              >
+                稍后再说
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Backup Reminder Banner */}
+      {backupDays !== null && backupDays >= 7 && (
+        <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex items-center gap-2 flex-1">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+            <span className="text-sm text-amber-800">
+              已经 <strong>{backupDays}</strong> 天没有备份了，建议立即备份
+            </span>
+          </div>
+          <button
+            onClick={handleQuickBackup}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 shrink-0 min-h-[44px]"
+          >
+            <Download className="w-4 h-4" /> 一键备份
+          </button>
+        </div>
+      )}
+
+      {/* Quick Backup Button — always visible */}
+      <div className="mb-4 flex items-center gap-2">
+        <button
+          onClick={handleQuickBackup}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-colors min-h-[44px] ${
+            backupDone
+              ? "bg-green-50 border-green-200 text-green-700"
+              : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-gray-50 hover:text-[var(--color-foreground)]"
+          }`}
+        >
+          <Download className="w-4 h-4" />
+          {backupDone ? "已备份" : "一键备份"}
+        </button>
+        {backupDays !== null && backupDays < 7 && (
+          <span className="text-xs text-[var(--color-muted-foreground)]">
+            上次备份: {backupDays === 0 ? "今天" : `${backupDays} 天前`}
+          </span>
+        )}
+      </div>
+
       {/* Greeting */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold">
@@ -189,7 +338,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         <div className="rounded-xl border border-[var(--color-border)] p-4">
           <div className="flex items-center justify-between">
             <span className="text-xs text-[var(--color-muted-foreground)]">PRD 文档</span>
@@ -372,7 +521,7 @@ export default function Dashboard() {
           <Sparkles className="w-4 h-4 text-amber-500" />
           快捷操作
         </h2>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {quickActions.map((action) => {
             const Icon = action.icon;
             return (

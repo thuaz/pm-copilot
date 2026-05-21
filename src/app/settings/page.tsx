@@ -30,7 +30,7 @@ function collectAllData(): Record<string, unknown> {
   const keys = [
     "prd-docs", "prd-draft", "saved-terms", "saved-notes", "pm-todos", "prototypes",
     "pm-projects", "pm-current-project",
-    "ai-config", "workflow-dismissed", "comm-guide-favorites",
+    "ai-config", "workflow-dismissed", "comm-guide-favorites", "comm-guide-custom",
   ];
   const data: Record<string, unknown> = {};
   keys.forEach((key) => {
@@ -52,7 +52,7 @@ function clearAllData() {
   const keys = [
     "prd-docs", "prd-draft", "saved-terms", "saved-notes", "pm-todos", "prototypes",
     "pm-projects", "pm-current-project",
-    "ai-config", "workflow-dismissed", "comm-guide-favorites",
+    "ai-config", "workflow-dismissed", "comm-guide-favorites", "comm-guide-custom",
   ];
   keys.forEach((key) => localStorage.removeItem(key));
 }
@@ -76,6 +76,7 @@ export default function SettingsPage() {
 
   // Guide sections
   const [openGuide, setOpenGuide] = useState<string | null>(null);
+  const [lastBackupDate, setLastBackupDate] = useState<string | null>(null);
 
   useEffect(() => {
     const raw = localStorage.getItem("ai-config");
@@ -91,6 +92,8 @@ export default function SettingsPage() {
         }
       } catch {}
     }
+    // Load last backup date
+    setLastBackupDate(localStorage.getItem("last-backup-date"));
   }, []);
 
   const handleSave = () => {
@@ -126,6 +129,8 @@ export default function SettingsPage() {
       a.download = `pm-copilot-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
+      // Track last backup date for reminder
+      localStorage.setItem("last-backup-date", new Date().toISOString().slice(0, 10));
       setBackupStatus("done");
       setTimeout(() => setBackupStatus("idle"), 3000);
     } catch {
@@ -230,7 +235,7 @@ export default function SettingsPage() {
               <label className="text-sm text-[var(--color-muted-foreground)] mb-2 block">
                 AI 服务商
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {PROVIDER_OPTIONS.map((p) => (
                   <button
                     key={p.key}
@@ -366,6 +371,11 @@ export default function SettingsPage() {
             <p className="text-xs text-[var(--color-muted-foreground)]">
               备份会将所有数据（PRD、待办、术语收藏、原型）导出为 JSON 文件。
               换电脑或清浏览器前记得备份。
+              {lastBackupDate && (
+                <span className="block mt-1">
+                  上次备份: {lastBackupDate}
+                </span>
+              )}
             </p>
 
             <div className="border-t border-[var(--color-border)] pt-4">

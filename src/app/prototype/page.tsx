@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { callAIStream } from "@/lib/ai";
-import { PROTOTYPE_SYSTEM_PROMPT, DESIGN_PROMPT_SYSTEM } from "@/lib/prompts/terms";
+import { PROTOTYPE_SYSTEM_PROMPT, PROTOTYPE_ITERATE_PROMPT, DESIGN_PROMPT_SYSTEM } from "@/lib/prompts/terms";
 import { MD } from "@/components/markdown";
 import {
   Loader2, Download, Eye, Code, Sparkles, Trash2, FileText,
   Monitor, Smartphone, Save, Copy, Check, Search, Image, ExternalLink,
+  Undo2, Redo2, PenLine,
 } from "lucide-react";
 
 interface SavedPrototype {
@@ -55,6 +56,13 @@ export default function PrototypePage() {
   const [showList, setShowList] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
+  // Iterative editing state
+  const [iterInput, setIterInput] = useState("");
+  const [iterLoading, setIterLoading] = useState(false);
+  const [historyStack, setHistoryStack] = useState<string[]>([]);
+  const [redoStack, setRedoStack] = useState<string[]>([]);
+  const [currentProtoId, setCurrentProtoId] = useState<string | null>(null);
+
   useEffect(() => {
     setSavedList(getSavedPrototypes());
   }, []);
@@ -66,6 +74,10 @@ export default function PrototypePage() {
     setHtmlCode("");
     setDesignPrompt("");
     setSimilarLinks("");
+    setHistoryStack([]);
+    setRedoStack([]);
+    setCurrentProtoId(null);
+    setIterInput("");
 
     try {
       // Step 1: Generate HTML prototype
@@ -130,21 +142,84 @@ export default function PrototypePage() {
     setTimeout(() => setCopied(null), 2000);
   };
 
+  const handleIterate = async () => {
+    if (!iterInput.trim() || !htmlCode || iterLoading) return;
+    setIterLoading(true);
+    setError("");
+    // Push current version to history, clear redo
+    setHistoryStack((prev) => [...prev.slice(-9), htmlCode]);
+    setRedoStack([]);
+
+    try {
+      const stream = callAIStream(
+        `以下是现有的 HTML 页面原型：\n\n\`\`\`html\n${htmlCode}\n\`\`\`\n\n用户的修改要求：${iterInput}`,
+        PROTOTYPE_ITERATE_PROMPT
+      );
+      const reader = stream.getReader();
+      let acc = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += value;
+        const htmlMatch = acc.match(/<!DOCTYPE html>[\s\S]*<\/html>/i) ||
+          acc.match(/<html[\s\S]*<\/html>/i);
+        setHtmlCode(htmlMatch ? htmlMatch[0] : acc);
+      }
+      setIterInput("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "迭代修改失败");
+      // Revert history push on error
+      setHistoryStack((prev) => prev.slice(0, -1));
+    } finally {
+      setIterLoading(false);
+    }
+  };
+
+  const handleUndo = () => {
+    if (historyStack.length === 0) return;
+    const prev = historyStack[historyStack.length - 1];
+    setHistoryStack((s) => s.slice(0, -1));
+    setRedoStack((s) => [...s.slice(-9), htmlCode]);
+    setHtmlCode(prev);
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack((s) => s.slice(0, -1));
+    setHistoryStack((s) => [...s.slice(-9), htmlCode]);
+    setHtmlCode(next);
+  };
+
   const handleSave = () => {
     const content = htmlCode;
     if (!content) return;
     const title = input || "未命名原型";
-    const proto: SavedPrototype = {
-      id: `proto-${Date.now()}`,
-      title: title.substring(0, 50),
-      description: input,
-      htmlCode: content,
-      designPrompt,
-      createdAt: new Date().toISOString(),
-    };
-    const updated = [proto, ...savedList];
-    setSavedList(updated);
-    savePrototypes(updated);
+
+    if (currentProtoId) {
+      // Update existing prototype
+      const updated = savedList.map((p) =>
+        p.id === currentProtoId
+          ? { ...p, htmlCode: content, designPrompt, description: input, title: title.substring(0, 50) }
+          : p
+      );
+      setSavedList(updated);
+      savePrototypes(updated);
+    } else {
+      // Create new prototype
+      const proto: SavedPrototype = {
+        id: `proto-${Date.now()}`,
+        title: title.substring(0, 50),
+        description: input,
+        htmlCode: content,
+        designPrompt,
+        createdAt: new Date().toISOString(),
+      };
+      const updated = [proto, ...savedList];
+      setSavedList(updated);
+      savePrototypes(updated);
+      setCurrentProtoId(proto.id);
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -157,6 +232,10 @@ export default function PrototypePage() {
     setHtmlCode(proto.htmlCode);
     setDesignPrompt(proto.designPrompt || "");
     setInput(proto.description);
+    setCurrentProtoId(proto.id);
+    setHistoryStack([]);
+    setRedoStack([]);
+    setIterInput("");
     setShowList(false);
   };
 
@@ -412,7 +491,69 @@ export default function PrototypePage() {
             </div>
           )}
 
-          {/* Output: Similar Products */}
+          {/* Iterative Edit Bar */}
+          {htmlCode && !loading && (
+            <div className="rounded-xl border border-[var(--color-border)] mb-4">
+              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--color-border)]">
+                <PenLine className="w-4 h-4 text-[var(--color-primary)]" />
+                <span className="text-sm font-medium">迭代优化</span>
+                <span className="text-xs text-[var(--color-muted-foreground)]">
+                  在现有原型基础上继续修改
+                </span>
+                <div className="flex-1" />
+                <button
+                  onClick={handleUndo}
+                  disabled={historyStack.length === 0}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="撤销"
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                  撤销
+                </button>
+                <button
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="重做"
+                >
+                  <Redo2 className="w-3.5 h-3.5" />
+                  重做
+                </button>
+                {historyStack.length > 0 && (
+                  <span className="text-xs text-[var(--color-muted-foreground)]">
+                    ({historyStack.length})
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 p-3">
+                <input
+                  value={iterInput}
+                  onChange={(e) => setIterInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleIterate();
+                    }
+                  }}
+                  placeholder="告诉 AI 你想怎么改，比如：把导航栏改成侧边栏、添加一个搜索框..."
+                  className="flex-1 px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:border-[var(--color-primary)]"
+                  disabled={iterLoading}
+                />
+                <button
+                  onClick={handleIterate}
+                  disabled={iterLoading || !iterInput.trim()}
+                  className="px-4 py-2 rounded-lg border-2 border-[var(--color-primary)] text-[var(--color-primary)] text-sm hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap transition-colors"
+                >
+                  {iterLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
+                  迭代优化
+                </button>
+              </div>
+            </div>
+          )}
           {similarLinks && (
             <div className="rounded-xl border border-[var(--color-border)] mb-4">
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)]">

@@ -700,23 +700,23 @@ export default function RecordingPage() {
       </div>
 
       {/* Recording area + Real-time panel */}
-      <div className={`flex gap-4 ${showRealtimePanel && recording ? "flex-row" : ""}`}>
+      <div className={`flex flex-col md:flex-row gap-4 ${showRealtimePanel && recording ? "" : ""}`}>
         {/* Left: recording controls */}
         <div className={`${showRealtimePanel && recording ? "flex-1 min-w-0" : "w-full"}`}>
-          <div className="rounded-xl border border-[var(--color-border)] p-6 mb-6">
+          <div className="rounded-xl border border-[var(--color-border)] p-4 md:p-6 mb-6">
             {/* Quick mode toggle — only visible at record step */}
             {step === "record" && (
               <div className="flex items-center justify-between mb-4 pb-4 border-b border-[var(--color-border)]">
-                <div className="flex items-center gap-2">
-                  <Zap className={`w-4 h-4 ${quickMode ? "text-amber-500" : "text-gray-400"}`} />
+                <div className="flex items-center gap-2 min-w-0">
+                  <Zap className={`w-4 h-4 shrink-0 ${quickMode ? "text-amber-500" : "text-gray-400"}`} />
                   <span className="text-sm font-medium">快速模式</span>
-                  <span className="text-xs text-[var(--color-muted-foreground)]">
+                  <span className="text-xs text-[var(--color-muted-foreground)] hidden sm:inline">
                     — 停止录音后自动转写、生成并保存 PRD
                   </span>
                 </div>
                 <button
                   onClick={() => setQuickMode(!quickMode)}
-                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                  className={`relative w-11 h-6 rounded-full transition-colors shrink-0 tap-exempt ${
                     quickMode ? "bg-amber-500" : "bg-gray-300"
                   }`}
                   role="switch"
@@ -731,27 +731,29 @@ export default function RecordingPage() {
               </div>
             )}
 
-            <div className="flex items-center gap-6">
+            <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
+              {/* Record button — larger on mobile for easy tapping */}
               <button
                 onClick={recording ? stopRecording : startRecording}
-                className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shrink-0 shadow-lg ${
+                className={`w-24 h-24 md:w-20 md:h-20 rounded-full flex items-center justify-center transition-all shrink-0 shadow-lg ${
                   recording ? "bg-red-500 hover:bg-red-600 animate-pulse" : "bg-[var(--color-primary)] hover:bg-blue-700"
                 }`}
+                aria-label={recording ? "停止录音" : "开始录音"}
               >
-                {recording ? <MicOff className="w-8 h-8 text-white" /> : <Mic className="w-8 h-8 text-white" />}
+                {recording ? <MicOff className="w-10 h-10 md:w-8 md:h-8 text-white" /> : <Mic className="w-10 h-10 md:w-8 md:h-8 text-white" />}
               </button>
-              <div className="flex-1">
+              <div className="flex-1 text-center sm:text-left">
                 {recording ? (
                   <div>
                     <div className="text-2xl font-mono font-bold text-red-500">{formatDuration(duration)}</div>
                     <p className="text-sm text-[var(--color-muted-foreground)]">正在录音... 点击停止</p>
                     {speechSupported && (
-                      <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                      <p className="text-xs text-green-600 mt-1 flex items-center gap-1 justify-center sm:justify-start">
                         <Eye className="w-3 h-3" /> 实时语音识别已启动
                       </p>
                     )}
                     {quickMode && (
-                      <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                      <p className="text-xs text-amber-600 mt-1 flex items-center gap-1 justify-center sm:justify-start">
                         <Zap className="w-3 h-3" /> 快速模式已开启 — 停止后自动生成 PRD
                       </p>
                     )}
@@ -771,16 +773,16 @@ export default function RecordingPage() {
                   </div>
                 )}
               </div>
-              <div className="shrink-0">
+              <div className="shrink-0 w-full sm:w-auto">
                 <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
-                <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[var(--color-border)] text-sm hover:bg-gray-50">
+                <button onClick={() => fileInputRef.current?.click()} className="flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2.5 rounded-lg border border-[var(--color-border)] text-sm hover:bg-gray-50 min-h-[44px]">
                   <Upload className="w-4 h-4" /> 上传录音
                 </button>
               </div>
             </div>
 
             {audioBlob && step === "record" && (
-              <button onClick={handleTranscribe} className="mt-4 w-full py-3.5 rounded-lg bg-[var(--color-primary)] text-white hover:bg-blue-700 flex items-center justify-center gap-2 text-base font-medium">
+              <button onClick={handleTranscribe} className="mt-4 w-full py-3.5 rounded-lg bg-[var(--color-primary)] text-white hover:bg-blue-700 flex items-center justify-center gap-2 text-base font-medium min-h-[48px]">
                 <Sparkles className="w-5 h-5" /> 开始转写并分析
               </button>
             )}
@@ -839,7 +841,7 @@ export default function RecordingPage() {
 
         {/* Right: Real-time panel (only during recording) */}
         {showRealtimePanel && recording && (
-          <div className="w-96 shrink-0 rounded-xl border border-blue-200 bg-slate-50 flex flex-col max-h-[600px]">
+          <div className="w-full md:w-96 shrink-0 rounded-xl border border-blue-200 bg-slate-50 flex flex-col max-h-[400px] md:max-h-[600px]">
             <div className="px-4 py-3 border-b border-blue-200 bg-blue-50 rounded-t-xl">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-blue-700 flex items-center gap-1.5">
