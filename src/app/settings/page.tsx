@@ -76,9 +76,9 @@ export default function SettingsPage() {
   const [clearDone, setClearDone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Guide sections
   const [openGuide, setOpenGuide] = useState<string | null>(null);
   const [lastBackupDate, setLastBackupDate] = useState<string | null>(null);
+  const [showAdvancedAI, setShowAdvancedAI] = useState(false);
 
   useEffect(() => {
     const raw = localStorage.getItem("ai-config");
@@ -169,6 +169,30 @@ export default function SettingsPage() {
 
   const guides = [
     {
+      key: "api-key-guide",
+      title: "如何配置自己的 AI 服务",
+      content: `如果你想使用自己的 AI 服务（可以获得更快、更稳定的体验），按以下步骤操作：
+
+**方案一：硅基流动（推荐，有免费额度）**
+1. 打开 https://siliconflow.cn 注册账号
+2. 注册后登录，进入「API 密钥」页面
+3. 点击「创建密钥」，复制生成的 Key
+4. 回到本页面，把 Key 粘贴到下方输入框
+5. 点击「测试连接」，看到绿色勾就说明成功了
+
+**方案二：OpenAI**
+1. 打开 https://platform.openai.com 注册
+2. 充值后进入「API Keys」页面
+3. 点击「Create new secret key」，复制 Key
+4. 回到本页面粘贴即可
+
+**方案三：Claude（Anthropic）**
+1. 打开 https://console.anthropic.com 注册
+2. 获取 API Key 后粘贴到本页面
+
+⚠️ 如果你觉得这些步骤太复杂，不用配置！工具已经自带了默认 AI 服务，可以直接使用。`,
+    },
+    {
       key: "quick-start",
       title: "快速上手",
       content: `PM Copilot 是专为医疗行业 PM 设计的日常工作工具。核心流程：
@@ -226,11 +250,29 @@ export default function SettingsPage() {
             AI 服务配置
           </h2>
 
-          {usingDefault && (
-            <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700">
-              已配置默认 AI 服务（硅基流动），可直接使用所有功能。你也可以换成自己的 Key。
+          {usingDefault && !showAdvancedAI ? (
+            <div>
+              <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700 mb-3">
+                <CheckCircle className="w-4 h-4 inline mr-1 -mt-0.5" />
+                已配置默认 AI 服务，所有功能可直接使用。
+              </div>
+              <p className="text-xs text-[var(--color-muted-foreground)] mb-3">
+                默认使用硅基流动提供的免费 AI 模型，满足日常使用。如果你有自己的 AI 服务账号，可以切换配置。
+              </p>
+              <button
+                onClick={() => setShowAdvancedAI(true)}
+                className="text-xs text-[var(--color-primary)] hover:underline"
+              >
+                我想用自己的 AI 服务 →
+              </button>
             </div>
-          )}
+          ) : (
+          <>
+            {usingDefault && (
+              <div className="mb-3 p-2 rounded-lg bg-gray-50 text-xs text-[var(--color-muted-foreground)]">
+                当前使用默认 AI 服务。填写自己的 Key 后将覆盖默认配置。
+              </div>
+            )}
 
           <div className="space-y-4">
             <div>
@@ -332,6 +374,8 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+          </>
+          )}
         </div>
 
         {/* Data Backup & Restore */}

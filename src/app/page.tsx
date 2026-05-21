@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { getAIConfig, hasDefaultAI } from "@/lib/ai";
 import { getAllPRDs, type PRDDocument } from "@/lib/prd-store";
+import { getAllMeetings, type Meeting } from "@/lib/meeting-store";
 import { useProject } from "@/lib/project-context";
 
 // --- Todo Store ---
@@ -140,6 +141,7 @@ export default function Dashboard() {
   const hasAI = hasDefaultAI() || !!getAIConfig();
   const { currentProject, currentProjectId } = useProject();
   const [prds, setPrds] = useState<PRDDocument[]>([]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [todoInput, setTodoInput] = useState("");
   const [showWorkflow, setShowWorkflow] = useState(false);
@@ -149,6 +151,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     setPrds(getAllPRDs(currentProjectId));
+    setMeetings(getAllMeetings(currentProjectId));
     setTodos(getTodos(currentProjectId));
     const dismissed = localStorage.getItem("workflow-dismissed");
     setShowWorkflow(!dismissed);
@@ -164,6 +167,7 @@ export default function Dashboard() {
   }, [currentProjectId]);
 
   const recentPRDs = prds.slice(0, 5);
+  const recentMeetings = meetings.slice(0, 5);
   const pendingTodos = todos.filter((t) => !t.done);
   const doneTodos = todos.filter((t) => t.done);
 
@@ -423,6 +427,52 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Recent Meetings */}
+        <div className="rounded-xl border border-[var(--color-border)]">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
+            <h2 className="text-sm font-medium flex items-center gap-1.5">
+              <MicIcon className="w-4 h-4 text-[var(--color-muted-foreground)]" />
+              最近会议
+            </h2>
+            {meetings.length > 0 && (
+              <Link href="/meetings" className="text-xs text-[var(--color-primary)] hover:underline flex items-center gap-0.5">
+                查看全部 <ChevronRight className="w-3 h-3" />
+              </Link>
+            )}
+          </div>
+          <div className="p-2">
+            {recentMeetings.length === 0 ? (
+              <div className="py-4 text-center">
+                <MicIcon className="w-6 h-6 text-gray-300 mx-auto mb-1" />
+                <p className="text-xs text-[var(--color-muted-foreground)]">暂无会议记录</p>
+              </div>
+            ) : (
+              <div className="space-y-0.5">
+                {recentMeetings.map((m) => (
+                  <Link
+                    key={m.id}
+                    href="/meetings"
+                    className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors group"
+                  >
+                    <div className={`w-4 h-4 rounded shrink-0 flex items-center justify-center text-white text-[10px] ${m.type === "recording" ? "bg-red-500" : "bg-orange-500"}`}>
+                      {m.type === "recording" ? "🎙" : "📝"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate group-hover:text-[var(--color-primary)] transition-colors">
+                        {m.title}
+                      </div>
+                      <div className="text-xs text-[var(--color-muted-foreground)] truncate">
+                        {m.type === "recording" ? "录音" : "笔记"} · {new Date(m.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <ArrowRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-[var(--color-primary)] transition-colors" />
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Todos */}
         <div className="rounded-xl border border-[var(--color-border)]">
           <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
@@ -589,13 +639,13 @@ export default function Dashboard() {
             首次使用？
           </h2>
           <p className="text-sm text-blue-700">
-            请先到「设置」页面配置你的 AI API Key（OpenAI 或 Claude 都行），然后就可以使用所有功能了。
+            工具已经配置好 AI 服务，可以直接使用。如果想用自己的 AI 服务获得更快体验，可以到「设置」页面配置。
           </p>
           <Link
             href="/settings"
             className="inline-block mt-3 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700"
           >
-            去设置
+            了解更多
           </Link>
         </div>
       )}

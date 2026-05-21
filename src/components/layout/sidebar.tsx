@@ -36,11 +36,11 @@ const navItems = [
   { href: "/recording", label: "录音分析", icon: Mic, group: "meeting" as const },
   { href: "/notes", label: "会议记录", icon: StickyNote, group: "meeting" as const },
   { href: "/meetings", label: "会议历史", icon: CalendarDays, group: "meeting" as const },
-  { href: "/comm-guide", label: "沟通教练", icon: MessageCircleHeart },
+  { href: "/comm-guide", label: "沟通教练", icon: MessageCircleHeart, desc: "和客户/供应商沟通" },
   { href: "/terms", label: "医学术语", icon: BookOpen },
   { href: "/prd", label: "PRD 生成", icon: FileText },
   { href: "/prototype", label: "原型生成", icon: Monitor },
-  { href: "/dev-comm", label: "开发沟通", icon: ArrowRightLeft },
+  { href: "/dev-comm", label: "开发沟通", icon: ArrowRightLeft, desc: "和程序员沟通" },
 ];
 
 function ProjectSelector() {
@@ -354,7 +354,12 @@ export function Sidebar() {
               className="flex-1 flex items-center gap-3 px-3 py-2.5"
             >
               <Icon className="w-[18px] h-[18px] shrink-0" />
-              {item.label}
+              <span className="flex flex-col leading-tight">
+                <span>{item.label}</span>
+                {"desc" in item && item.desc && (
+                  <span className="text-[10px] text-[var(--color-muted-foreground)]">{item.desc}</span>
+                )}
+              </span>
             </Link>
             {showPin && (
               <button
@@ -437,7 +442,12 @@ export function Sidebar() {
                     className="flex-1 flex items-center gap-3 px-3 py-2.5"
                   >
                     <Icon className="w-[18px] h-[18px] shrink-0" />
-                    {item.label}
+                    <span className="flex flex-col leading-tight">
+                      <span>{item.label}</span>
+                      {"desc" in item && item.desc && (
+                        <span className="text-[10px] text-[var(--color-muted-foreground)]">{item.desc}</span>
+                      )}
+                    </span>
                   </Link>
                   <button
                     onClick={(e) => {
