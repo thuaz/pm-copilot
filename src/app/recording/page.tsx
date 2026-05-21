@@ -47,22 +47,57 @@ const SUMMARY_PROMPT = `你是一位 ToB 产品经理助手。分析以下会议
 ### 下次沟通建议
 （建议下次和客户聊什么）`;
 
-const PRD_SYSTEM_PROMPT = `你是一位资深的 ToB 产品经理助手。根据用户确认过的会议总结，生成一份完整的 PRD 文档。
+const PRD_SYSTEM_PROMPT = `你是一位资深的 ToB 医疗行业产品经理助手。根据用户确认过的会议总结，生成一份完整的 PRD 文档。
 
-要求：
-1. 严格按照总结中的需求来写，不要遗漏
-2. 如果总结中标注了「待确认」，在 PRD 中也标注出来
-3. 用规范的 PRD 格式输出
-4. 按模块拆分功能需求，标注优先级
-5. 补充合理的非功能需求
+**严格要求：必须按照以下固定结构输出，使用 Markdown 二级标题（##）和三级标题（###）。每个章节都必须存在，不能省略。**
 
-PRD 结构：
-## 项目背景
-## 目标用户
-## 功能需求（按优先级排列）
+## 项目背景与目标
+- 项目背景和现状问题
+- 项目目标（用 SMART 原则描述）
+- 成功标准
+
+## 目标用户与使用场景
+- 用户角色定义（按角色分列）
+- 核心使用场景（每个场景：谁、在什么情况下、要做什么、预期结果）
+
+## 功能需求（按模块拆分）
+### 模块一：[模块名称]
+- 功能点列表，每个功能标注 **P0/P1/P2** 优先级
+- 输入/输出/业务规则
+（重复此结构列出所有模块）
+
+## API 接口定义
+- 核心接口列表（路径、方法、参数、返回值）
+
+## 数据模型
+- 核心表/实体定义（字段、类型、关系）
+
+## 错误处理规范
+- 错误码定义
+- 错误提示策略
+
 ## 非功能需求
+- 性能要求（响应时间、并发量）
+- 安全要求（数据加密、权限控制）
+- 合规要求（医疗数据相关）
+- 兼容性要求
+
+## 权限模型
+- 角色定义与权限矩阵
+
+## 审计日志
+- 必须记录的操作类型
+
 ## 待确认事项
-## 下一步计划`;
+- 标注所有需要进一步确认的内容
+
+## 下一步计划
+- 里程碑和时间节点
+
+注意：
+1. 如果总结中标注了「待确认」，在 PRD 对应位置也用 > ⚠️ 待确认 标注
+2. 医疗行业产品必须包含数据安全、隐私保护、合规相关内容
+3. 不要输出任何解释性文字，直接输出 Markdown 格式的 PRD`;
 
 const ITERATE_SYSTEM_PROMPT = `你是一位资深的 ToB 产品经理助手。
 
@@ -580,11 +615,15 @@ export default function RecordingPage() {
     setQuickModeError("");
   };
 
+  const [transcribeStage, setTranscribeStage] = useState<"uploading" | "transcribing" | "analyzing" | "done">("uploading");
+
   const handleTranscribe = async () => {
     if (!audioBlob) return;
     setStep("transcribing");
     setError("");
     try {
+      // Stage 1: Upload and transcribe audio
+      setTranscribeStage("transcribing");
       const text = await transcribeAudio(audioBlob);
       if (!text.trim()) {
         setError("未能识别到语音内容，请确认录音是否清晰");
@@ -594,6 +633,8 @@ export default function RecordingPage() {
       // Use Whisper transcript as primary, merge realtime segments as supplementary
       setTranscript(text);
 
+      // Stage 2: Analyze and generate summary
+      setTranscribeStage("analyzing");
       const [termsRes] = await Promise.all([
         callAI(text, TERMS_BATCH_SYSTEM_PROMPT).catch(() => "术语分析失败"),
         (async () => {
@@ -611,6 +652,7 @@ export default function RecordingPage() {
         })(),
       ]);
       setTerms(termsRes);
+      setTranscribeStage("done");
       try {
         const title = summary.split("\n").find((l: string) => l.trim() && !l.startsWith("```"))?.replace(/^#+\s*/, "") || "录音会议";
         createMeeting("recording", title, text, summary, currentProjectId ?? undefined);
@@ -937,9 +979,51 @@ export default function RecordingPage() {
             )}
 
             {step === "transcribing" && (
-              <div className="mt-4 p-4 rounded-lg bg-blue-50 text-blue-700 text-sm flex items-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                正在转写语音并分析需求，请稍候...
+              <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                  <span className="text-sm font-medium text-blue-700">
+                    {transcribeStage === "transcribing" ? "正在转写语音..." : "正在生成会议总结..."}
+                  </span>
+                </div>
+                <div className="flex gap-3">
+                  {([
+                    { key: "transcribing", label: "语音转写", desc: "将录音转为文字" },
+                    { key: "analyzing", label: "AI 分析", desc: "生成会议总结" },
+                  ] as const).map((stage, i) => {
+                    const stageOrder = ["transcribing", "analyzing"];
+                    const currentIdx = stageOrder.indexOf(transcribeStage);
+                    const stageIdx = stageOrder.indexOf(stage.key);
+                    const isDone = stageIdx < currentIdx;
+                    const isCurrent = stageIdx === currentIdx;
+                    return (
+                      <div key={stage.key} className="flex items-center gap-2">
+                        {i > 0 && <div className={`w-6 h-0.5 ${isDone || isCurrent ? "bg-blue-400" : "bg-gray-200"}`} />}
+                        <div className="flex items-center gap-1.5">
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
+                            isDone ? "bg-green-500 text-white"
+                              : isCurrent ? "bg-blue-600 text-white animate-pulse"
+                              : "bg-gray-200 text-gray-400"
+                          }`}>
+                            {isDone ? "✓" : i + 1}
+                          </div>
+                          <div>
+                            <div className={`text-xs font-medium ${isCurrent ? "text-blue-700" : isDone ? "text-green-600" : "text-gray-400"}`}>
+                              {isCurrent && <Loader2 className="w-3 h-3 inline mr-0.5 animate-spin" />}
+                              {stage.label}
+                            </div>
+                            <div className="text-xs text-gray-400">{stage.desc}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-blue-500 mt-3">
+                  {transcribeStage === "transcribing"
+                    ? `正在将 ${Math.round(duration / 60)} 分钟录音发送到语音识别服务，通常需要 30-90 秒...`
+                    : "转写完成，正在用 AI 分析会议内容并生成总结..."}
+                </p>
               </div>
             )}
           </div>
